@@ -328,8 +328,8 @@ window.addEventListener('hashchange',go);
 async function start(){ D = await S.load(); build(); DIVS=[...new Set(D.funcionarios.map(f=>f.division).filter(Boolean))].sort(); document.body.classList.toggle('lectura',ROL!=='admin'); go(); }
 // ================== CONFIGURACIÓN ==================
 // Supabase > Project Settings > API
-const SUPABASE_URL      = 'https://TU-PROYECTO.supabase.co';
-const SUPABASE_ANON_KEY = 'TU-ANON-KEY';
+const SUPABASE_URL      = 'https://xjwtmkpddgspvptnmptw.supabase.co/rest/v1/';
+const SUPABASE_ANON_KEY = 'sb_publishable_TRtPJw_ioc7jELFCOTP8Ew_H_beWwTI';
 const DOMINIO           = 'minciencia.gob.cl';
 // ===================================================
 var BANNER = '';
