@@ -185,8 +185,8 @@ function ficha(id){
   const fila=x=>`<tr><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie||x.a.imei||'')}</td><td>${x.a.numero?esc(x.a.numero):(x.a.codigo?`<span class="mono">${esc(x.a.codigo)}</span>`:'')}</td><td>${x.acta_entrega?`<a href="${esc(x.acta_entrega)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}${x.alerta?` <span class="tag t-bad">sin devolución</span>`:''}</td></tr>`;
   document.getElementById('mbody').innerHTML=`<h1>${esc(nom(f))}</h1><div class="sub">${tagEstado(f.estado)} · ${esc(f.division)||'Sin división'} · RUT <span class="mono">${esc(f.rut)||'—'}</span> · ${esc(f.correo)}</div>
   <div class="mut sm">${esc(f.direccion)} ${f.piso?'· Piso '+esc(f.piso):''} ${f.tarjeta?'· Tarjeta acceso '+esc(f.tarjeta):''} ${f.candado?'· Candado '+esc(f.candado):''} ${f.antivirus?'· Antivirus '+esc(f.antivirus):''}</div>
-  <div class="bar adm" style="margin-top:14px">${f.estado==='Activo'?`<button class="p" onclick="asignarForm('${id}')">+ Asignar activo</button><button onclick="entregaForm('${id}')">+ Entregar accesorio</button><button onclick="licForm('${id}')">+ Asignar licencia</button><button onclick="feaForm('${id}')">+ Registrar FEA</button>`:''}<button onclick="funcForm('${id}')">Editar datos</button></div>
-  <div class="bar" style="margin-top:6px"><button onclick="acta('${id}','entrega')">Generar acta de entrega</button><button class="adm" onclick="acta('${id}','devolucion')">Acta de devolución</button>${f.estado==='Inactivo'&&v.length?`<button class="d adm" onclick="egreso('${id}')">Proceso de egreso</button>`:''}</div>
+  <div class="bar adm" style="margin-top:14px">${f.estado==='Activo'?`<button class="p" onclick="asignarForm('${id}')">+ Asignar activo</button><button onclick="entregaForm('${id}')">+ Entregar accesorio</button><button onclick="licForm('${id}')">+ Asignar licencia</button><button onclick="feaForm('${id}')">+ Registrar FEA</button>`:''}<button onclick="funcForm('${id}')">Editar datos</button>${f.estado==='Activo'?`<button class="d" onclick="egreso('${id}')">Registrar retiro</button>`:''}</div>
+  <div class="bar" style="margin-top:6px"><button onclick="acta('${id}','entrega')">Generar acta de entrega</button><button class="adm" onclick="acta('${id}','devolucion')">Acta de devolución</button>${f.estado==='Inactivo'&&(v.length||D.licencias_asig.some(l=>l.funcionario===id))?`<button class="d adm" onclick="egreso('${id}')">Completar egreso</button>`:''}${!D.asignaciones.some(x=>x.funcionario===id)&&!D.entregas.some(x=>x.funcionario===id)&&!D.licencias_asig.some(x=>x.funcionario===id)&&!D.fea.some(x=>x.funcionario===id)?`<button class="d adm" onclick="eliminarFunc('${id}')">Eliminar</button>`:''}</div>
   <div class="sec"><h3>Activos asignados (${v.length})</h3>${v.length?`<table><tr><th>Tipo</th><th>Equipo</th><th>Serie / IMEI</th><th>Código / Número</th><th></th></tr>${v.map(fila).join('')}</table>`:'<div class="mut">Sin activos asignados</div>'}</div>
   <div class="sec"><h3>Accesorios entregados (bodega)</h3>${acc.length?`<table><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th></th></tr>${acc.map(e=>`<tr><td>${fd(e.fecha)}</td><td>${esc(P[e.codigo].descripcion)}</td><td>${e.cantidad}</td><td>${e.acta?`<a href="${esc(e.acta)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}</td></tr>`).join('')}</table>`:'<div class="mut">Ninguno</div>'}</div>
   <div class="row"><div class="sec"><h3>Licencias</h3>${lic.length?lic.map(l=>`<div>${tagEstado('Activa')} ${esc(l.prod)} – ${esc(l.plan)} <span class="mut sm">desde ${fd(l.desde)}</span></div>`).join(''):'<div class="mut">Ninguna</div>'}</div>
@@ -194,14 +194,14 @@ function ficha(id){
   ${h.length?`<div class="sec"><h3>Historial (devueltos / reasignados)</h3><table>${h.map(x=>`<tr><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie)}</td><td>${x.acta_devolucion?`<a href="${esc(x.acta_devolucion)}" target="_blank">Acta devolución</a>`:''} ${titular(x.activo)&&titular(x.activo).id!==id?'<span class="mut sm">hoy con '+esc(nomC(titular(x.activo)))+'</span>':''}</td></tr>`).join('')}</table></div>`:''}`;
   openM();
 }
-function acta(id,tipo){
-  const f=F[id], v=tipo==='entrega'?vigentes(id):historial(id).concat(vigentes(id));
+function acta(id,tipo,lista){
+  const f=F[id], v=tipo==='entrega'?vigentes(id):(lista?D.asignaciones.filter(x=>x.funcionario===id&&lista.includes(x.activo)).map(x=>({...x,a:A[x.activo]})).filter((x,i,arr)=>arr.findIndex(y=>y.activo===x.activo)===i):historial(id));
   document.getElementById('mbody').innerHTML=`<div class="bar"><button onclick="ficha('${id}')">← Volver a la ficha</button><button onclick="copyActa()">Copiar texto</button>${PRINT_BTN}</div>
   <div class="acta" id="actaTxt"><img src="${LOGO_COLOR}" alt="Ministerio de Ciencia, Tecnología, Conocimiento e Innovación" style="width:6cm;display:block;margin-bottom:18px"><h2>ACTA DE ${tipo==='entrega'?'ENTREGA':'DEVOLUCIÓN'} DE ACTIVOS</h2>
   <p>En Santiago, a ${new Date().toLocaleDateString('es-CL',{day:'numeric',month:'long',year:'numeric'})}, la Unidad de Tecnologías de la Información ${tipo==='entrega'?'hace entrega a':'recibe de'} don(ña) <b>${esc(nom(f))}</b>, RUT <b>${esc(f.rut)}</b>, de la ${esc(f.division)}, los siguientes activos:</p>
   <table style="width:100%;border-collapse:collapse"><tr><th>N°</th><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Serie</th><th>Cód. inventario</th></tr>
   ${v.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.a.categoria==='Computador'?x.a.tipo:x.a.categoria)}</td><td>${esc(x.a.marca)}</td><td>${esc(x.a.modelo)}</td><td>${esc(x.a.serie||x.a.imei)}</td><td>${esc(x.a.codigo)}</td></tr>`).join('')||'<tr><td colspan="6">—</td></tr>'}
-  ${accDe(id).map((e,i)=>`<tr><td>${v.length+i+1}</td><td>Accesorio</td><td colspan="3">${esc(P[e.codigo].descripcion)} (x${e.cantidad})</td><td>${esc(e.codigo)}</td></tr>`).join('')}</table>
+  ${(tipo==='entrega'?accDe(id):[]).map((e,i)=>`<tr><td>${v.length+i+1}</td><td>Accesorio</td><td colspan="3">${esc(P[e.codigo].descripcion)} (x${e.cantidad})</td><td>${esc(e.codigo)}</td></tr>`).join('')}</table>
   <p style="font-size:12.5px">${tipo==='entrega'?'El funcionario se compromete a hacer buen uso de los equipos y a devolverlos en buen estado al término de sus funciones o cuando le sean requeridos.':'Los activos se reciben en el estado que se indica, quedando el funcionario liberado de su responsabilidad sobre ellos.'}</p>
   <div class="firmas"><div>${esc(nom(f))}<br>${tipo==='entrega'?'Recibe':'Entrega'}</div><div>Unidad TI<br>${tipo==='entrega'?'Entrega':'Recibe'}</div></div></div>`;
 }
@@ -290,24 +290,51 @@ function renderFea(){
 }
 V.egresos=()=>{
   const L=egresosPend();
-  return `<h1>Egresos pendientes</h1><div class="sub">Funcionarios inactivos que todavía tienen activos, licencias o FEA vigentes</div>
-  <div class="card">${L.length?`<table><tr><th>Funcionario</th><th>División</th><th>Activos por devolver</th><th>Licencias por liberar</th><th>FEA por revocar</th><th></th></tr>${L.map(x=>`<tr><td><b>${esc(nom(x.f))}</b><div class="mut sm mono">${esc(x.f.rut)}</div></td><td>${esc(x.f.division)}</td><td>${x.act.map(a=>`<div class="sm">${esc(a.a.categoria)}: ${esc(a.a.modelo)}</div>`).join('')||'—'}</td><td>${x.lic.map(l=>esc(l.prod+' '+l.plan)).join('<br>')||'—'}</td><td>${x.fe.map(f=>esc(f.proveedor)).join('<br>')||'—'}</td><td><button class="adm" onclick="egreso('${x.f.id}')">Procesar</button></td></tr>`).join('')}</table>`:'<div class="empty">No hay egresos pendientes</div>'}</div>`;
+  return `<h1>Egresos pendientes</h1><div class="sub">Funcionarios retirados que todavía tienen activos por devolver, licencias o FEA vigentes. Para registrar un retiro nuevo, abre la ficha del funcionario y presiona <b>Registrar retiro</b>.</div>
+  <div class="card">${L.length?`<table><tr><th>Funcionario</th><th>División</th><th>Activos por devolver</th><th>Licencias por liberar</th><th>FEA por revocar</th><th></th></tr>${L.map(x=>`<tr><td><b>${esc(nom(x.f))}</b><div class="mut sm mono">${esc(x.f.rut)}</div></td><td>${esc(x.f.division)}</td><td>${x.act.map(a=>`<div class="sm">${esc(a.a.categoria)}: ${esc(a.a.modelo)}</div>`).join('')||'—'}</td><td>${x.lic.map(l=>esc(l.prod+' '+l.plan)).join('<br>')||'—'}</td><td>${x.fe.map(f=>esc(f.proveedor)).join('<br>')||'—'}</td><td><button class="adm" onclick="egreso('${x.f.id}')">Completar</button></td></tr>`).join('')}</table>`:'<div class="empty">No hay egresos pendientes</div>'}</div>`;
 };
 function egreso(id){
-  const f=F[id],v=vigentes(id),lic=licDe(id),fe=feaDe(id).filter(x=>x.estado==='Activa');
-  document.getElementById('mbody').innerHTML=`<h1>Proceso de egreso</h1><div class="sub">${esc(nom(f))} · ${esc(f.division)}</div>
-  ${v.map(x=>`<label class="check"><input type="checkbox" class="ck"> Recibir ${esc(x.a.categoria.toLowerCase())} ${esc(x.a.marca)} ${esc(x.a.modelo)} <span class="mono mut">${esc(x.a.serie||x.a.imei)}</span></label>`).join('')}
-  ${lic.map(l=>`<label class="check"><input type="checkbox" class="ck"> Liberar licencia ${esc(l.prod)} ${esc(l.plan)}</label>`).join('')}
-  ${fe.map(x=>`<label class="check"><input type="checkbox" class="ck"> Solicitar revocación FEA ${esc(x.proveedor)}</label>`).join('')}
-  <label class="check"><input type="checkbox" class="ck"> Desactivar tarjeta de acceso ${esc(f.tarjeta)}</label>
-  <label class="check"><input type="checkbox" class="ck"> Deshabilitar cuenta de correo ${esc(f.correo)}</label>
-  <div class="bar" style="margin-top:14px"><button class="p" onclick="cerrarEgreso('${id}')">Cerrar egreso y generar acta de devolución</button></div><div id="egErr"></div>`;
+  const f=F[id], v=vigentes(id), lic=D.licencias_asig.filter(l=>l.funcionario===id), fe=feaDe(id).filter(x=>x.estado==='Activa'||x.estado==='Pendiente');
+  const nomLic=l=>{const p=D.licencias.find(x=>x.id===l.pool);return p.producto+' '+(p.producto==='Claude'?l.tipo:p.plan);};
+  document.getElementById('mbody').innerHTML=`<h1>${f.estado==='Activo'?'Registrar retiro':'Completar egreso'}</h1><div class="sub">${esc(nom(f))} · ${esc(f.division)} · RUT ${esc(f.rut)}</div>
+  <div class="row"><div><label class="f">Fecha de retiro</label><input type="date" id="egF" value="${TODAY}" style="width:100%"></div><div></div></div>
+  <div class="sec"><h3>Activos a recibir (${v.length})</h3>${v.length?v.map(x=>`<label class="check"><input type="checkbox" class="ckA" value="${x.activo}" checked> <span><b>${esc(x.a.categoria)}</b> ${esc(x.a.marca)} ${esc(x.a.modelo)} <span class="mono mut">${esc(x.a.serie||x.a.imei)}</span></span></label>`).join(''):'<div class="mut">No tiene activos asignados</div>'}
+   ${v.length?'<div class="mut sm" style="margin-top:6px">Desmarca lo que todavía no devuelve: quedará como <b>pendiente de devolución</b> y seguirá apareciendo en Egresos.</div>':''}</div>
+  ${lic.length?`<div class="sec"><h3>Licencias a liberar</h3>${lic.map(l=>`<label class="check"><input type="checkbox" class="ckL" value="${l.id}" checked> ${esc(nomLic(l))}</label>`).join('')}</div>`:''}
+  ${fe.length?`<div class="sec"><h3>Firma electrónica</h3>${fe.map(x=>`<label class="check"><input type="checkbox" class="ckF" value="${x.id}" checked> Marcar como inactiva FEA ${esc(x.proveedor)} <span class="mut sm">(recuerda solicitar la revocación al proveedor)</span></label>`).join('')}</div>`:''}
+  <div class="sec"><h3>Recordatorios (no cambian el inventario)</h3>
+   <label class="check"><input type="checkbox"> Desactivar tarjeta de acceso ${esc(f.tarjeta||'')}</label>
+   <label class="check"><input type="checkbox"> Deshabilitar cuenta de correo ${esc(f.correo)}</label></div>
+  <div class="bar" style="margin-top:14px"><button class="p" onclick="cerrarEgreso('${id}')">${f.estado==='Activo'?'Confirmar retiro':'Guardar'} y generar acta de devolución</button></div><div id="egErr"></div>`;
   openM();
 }
 async function cerrarEgreso(id){
-  if([...document.querySelectorAll('.ck')].some(c=>!c.checked)){egErr.innerHTML='<span class="tag t-warn">Marca todos los ítems antes de cerrar</span>';return;}
-  try{ await S.egreso(id); acta(id,'devolucion'); toast('Egreso cerrado: activos vuelven a disponible'); setPill(); }catch(e){ egErr.innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
+  const val=c=>[...document.querySelectorAll(c)].filter(x=>x.checked).map(x=>x.value);
+  const todos=[...document.querySelectorAll('.ckA')].map(x=>x.value);
+  const r={fecha:egF.value||TODAY, activos:val('.ckA'), pendientes:todos.filter(a=>!val('.ckA').includes(a)), licencias:val('.ckL').map(Number), fea:val('.ckF').map(x=>isNaN(+x)?x:+x)};
+  try{
+    await S.retiro(id,r); go._keep=true; go();
+    if(r.activos.length) acta(id,'devolucion',r.activos); else ficha(id);
+    toast(r.pendientes.length?`Retiro registrado · ${r.pendientes.length} activo(s) pendiente(s) de devolución`:'Retiro registrado: los activos vuelven a disponible'); setPill();
+  }catch(e){ egErr.innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
 }
+async function eliminarFunc(id){
+  const f=F[id];
+  const usa=D.asignaciones.some(x=>x.funcionario===id)||D.entregas.some(x=>x.funcionario===id)||D.licencias_asig.some(x=>x.funcionario===id)||D.fea.some(x=>x.funcionario===id);
+  if(usa) return toast('No se puede eliminar: tiene historial. Regístralo como retirado.');
+  document.getElementById('mbody').innerHTML=`<h1>Eliminar funcionario</h1><p>¿Eliminar definitivamente a <b>${esc(nom(f))}</b> (${esc(f.rut)})? Usa esto solo si fue creado por error.</p>
+  <div class="bar"><button onclick="ficha('${id}')">Cancelar</button><button class="d" onclick="confEliminar('${id}')">Sí, eliminar</button></div>`;
+}
+async function confEliminar(id){ try{ await S.eliminarFuncionario(id); toast('Funcionario eliminado'); closeM(); go(); }catch(e){ toast(e.message); } }
+// RUT: formato automático mientras se escribe
+function rutTipeo(el){
+  const c=el.value.replace(/[^0-9kK]/g,'').toUpperCase().slice(0,9);
+  if(c.length<2){ el.value=c; rutMarca(el,null); return; }
+  const n=c.slice(0,-1).replace(/K/g,''), d=c.slice(-1);
+  el.value=(n?(+n).toLocaleString('es-CL').replace(/,/g,'.'):'')+'-'+d;
+  rutMarca(el, c.length>=8 ? rutDV(n)===d : null);
+}
+function rutMarca(el,ok){ const m=document.getElementById('rutOk'); if(!m) return; m.innerHTML=ok===null?'':ok?'<span class="tag t-ok">RUT válido</span>':'<span class="tag t-bad">Dígito verificador incorrecto</span>'; }
 V.calidad=()=>{
   const g={}; D.observaciones.forEach(o=>{(g[o.tipo]=g[o.tipo]||[]).push(o.detalle);});
   return `<h1>Calidad de datos</h1><div class="sub">Lo que la importación detectó y corrigió (o dejó marcado para revisar) al pasar desde la planilla</div>
@@ -321,10 +348,10 @@ function campo(id,label,val,extra){ return `<div><label class="f">${label}</labe
 function funcForm(id){
   const f=id?F[id]:{estado:'Activo'};
   document.getElementById('mbody').innerHTML=`${id?`<button onclick="ficha('${id}')">← Volver</button>`:''}<h1 style="margin-top:${id?12:0}px">${id?'Editar funcionario':'Nuevo funcionario'}</h1>
-  <div class="row">${campo('nfRut','RUT *',f.rut,'placeholder="12.345.678-9"')}${campo('nfCorreo','Correo institucional *',f.correo,'placeholder="nombre@minciencia.gob.cl"')}</div>
+  <div class="row"><div><label class="f">RUT * <span id="rutOk"></span></label><input id="nfRut" value="${esc(f.rut||'')}" placeholder="Escribe solo números y dígito: 123456789" oninput="rutTipeo(this)" style="width:100%"></div>${campo('nfCorreo','Correo institucional *',f.correo,'placeholder="nombre@minciencia.gob.cl"')}</div>
   <div class="row">${campo('nfNom','Nombres *',f.nombres)}${campo('nfPat','Apellido paterno *',f.paterno)}${campo('nfMat','Apellido materno',f.materno)}</div>
   <div class="row"><div><label class="f">División / Unidad *</label><input id="nfDiv" list="divs" value="${esc(f.division||'')}" style="width:100%"><datalist id="divs">${DIVS.map(d=>`<option value="${esc(d)}">`).join('')}</datalist></div>${campo('nfDir','Dirección',f.direccion,'placeholder="Morandé 226"')}${campo('nfPiso','Piso',f.piso)}</div>
-  <div class="row">${campo('nfTarj','N° tarjeta de acceso',f.tarjeta)}${campo('nfCand','Candado',f.candado)}${id?`<div><label class="f">Estado</label><select id="nfEst" style="width:100%">${['Activo','Inactivo'].map(s=>`<option ${s===f.estado?'selected':''}>${s}</option>`).join('')}</select></div>`:'<div></div>'}</div>
+  <div class="row">${campo('nfTarj','N° tarjeta de acceso',f.tarjeta)}${campo('nfCand','Candado',f.candado)}${id&&f.estado==='Inactivo'?`<div><label class="f">Estado</label><select id="nfEst" style="width:100%"><option>Inactivo</option><option value="Activo">Activo (reincorporar)</option></select></div>`:'<div></div>'}</div>
   <div class="bar" style="margin-top:16px"><button class="p" onclick="guardarFunc('${id||''}')">${id?'Guardar cambios':'Crear y abrir ficha'}</button></div><div id="nfErr"></div>`;
   openM();
 }
@@ -472,6 +499,15 @@ const S = {
   async crearActivo(r){ const { data, error } = await sb.from('activos').insert(r).select('id').single(); if(error) throw new Error(error.message); await this.reload(); return data.id; },
   async asignarLicencia(l){ ok(await sb.from('licencias_asig').insert(l)); await this.reload(); },
   async crearFea(x){ ok(await sb.from('fea').insert(x)); await this.reload(); },
+  async retiro(fid, r){
+    ok(await sb.from('funcionarios').update({ estado:'Inactivo' }).eq('id', fid));
+    if(r.activos.length) ok(await sb.from('asignaciones').update({ vigente:false, hasta:r.fecha, alerta:null }).eq('funcionario', fid).eq('vigente', true).in('activo', r.activos));
+    if(r.pendientes.length) ok(await sb.from('asignaciones').update({ alerta:'Pendiente de devolución' }).eq('funcionario', fid).eq('vigente', true).in('activo', r.pendientes));
+    if(r.licencias.length) ok(await sb.from('licencias_asig').update({ vigente:false, hasta:r.fecha }).in('id', r.licencias));
+    if(r.fea.length) ok(await sb.from('fea').update({ estado:'Inactiva' }).in('id', r.fea));
+    await this.reload();
+  },
+  async eliminarFuncionario(id){ ok(await sb.from('funcionarios').delete().eq('id', id)); await this.reload(); },
   async egreso(fid){
     ok(await sb.from('asignaciones').update({ vigente:false, hasta: hoy(), alerta:null }).eq('funcionario', fid).eq('vigente', true));
     ok(await sb.from('licencias_asig').update({ vigente:false, hasta: hoy() }).eq('funcionario', fid).eq('vigente', true));
