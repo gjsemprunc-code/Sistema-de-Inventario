@@ -184,7 +184,7 @@ function ficha(id){
   const f=F[id], v=vigentes(id), h=historial(id), lic=licDe(id), fea=feaDe(id), acc=accDe(id);
   const fila=x=>`<tr><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie||x.a.imei||'')}</td><td>${x.a.numero?esc(x.a.numero):(x.a.codigo?`<span class="mono">${esc(x.a.codigo)}</span>`:'')}</td><td>${x.acta_entrega?`<a href="${esc(x.acta_entrega)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}${x.alerta?` <span class="tag t-bad">sin devolución</span>`:''}</td></tr>`;
   document.getElementById('mbody').innerHTML=`<h1>${esc(nom(f))}</h1><div class="sub">${tagEstado(f.estado)} · ${esc(f.division)||'Sin división'} · RUT <span class="mono">${esc(f.rut)||'—'}</span> · ${esc(f.correo)}</div>
-  <div class="mut sm">${esc(f.direccion)} ${f.piso?'· Piso '+esc(f.piso):''} ${f.tarjeta?'· Tarjeta acceso '+esc(f.tarjeta):''} ${f.candado?'· Candado '+esc(f.candado):''} ${f.antivirus?'· Antivirus '+esc(f.antivirus):''}</div>
+  <div class="mut sm">${esc(f.direccion)} ${f.piso?'· Piso '+esc(f.piso):''} ${f.candado?'· Candado (registro anterior): '+esc(f.candado):''} ${f.antivirus?'· Antivirus '+esc(f.antivirus):''}</div>
   <div class="bar adm" style="margin-top:14px">${f.estado==='Activo'?`<button class="p" onclick="asignarForm('${id}')">+ Asignar activo</button><button onclick="entregaForm('${id}')">+ Entregar accesorio</button><button onclick="licForm('${id}')">+ Asignar licencia</button><button onclick="feaForm('${id}')">+ Registrar FEA</button>`:''}<button onclick="funcForm('${id}')">Editar datos</button>${f.estado==='Activo'?`<button class="d" onclick="egreso('${id}')">Registrar retiro</button>`:''}</div>
   <div class="bar" style="margin-top:6px"><button onclick="acta('${id}','entrega')">Generar acta de entrega</button><button class="adm" onclick="acta('${id}','devolucion')">Acta de devolución</button>${f.estado==='Inactivo'&&(v.length||D.licencias_asig.some(l=>l.funcionario===id))?`<button class="d adm" onclick="egreso('${id}')">Completar egreso</button>`:''}${!D.asignaciones.some(x=>x.funcionario===id)&&!D.entregas.some(x=>x.funcionario===id)&&!D.licencias_asig.some(x=>x.funcionario===id)&&!D.fea.some(x=>x.funcionario===id)?`<button class="d adm" onclick="eliminarFunc('${id}')">Eliminar</button>`:''}</div>
   <div class="sec"><h3>Activos asignados (${v.length})</h3>${v.length?`<table><tr><th>Tipo</th><th>Equipo</th><th>Serie / IMEI</th><th>Código / Número</th><th></th></tr>${v.map(fila).join('')}</table>`:'<div class="mut">Sin activos asignados</div>'}</div>
@@ -303,7 +303,7 @@ function egreso(id){
   ${lic.length?`<div class="sec"><h3>Licencias a liberar</h3>${lic.map(l=>`<label class="check"><input type="checkbox" class="ckL" value="${l.id}" checked> ${esc(nomLic(l))}</label>`).join('')}</div>`:''}
   ${fe.length?`<div class="sec"><h3>Firma electrónica</h3>${fe.map(x=>`<label class="check"><input type="checkbox" class="ckF" value="${x.id}" checked> Marcar como inactiva FEA ${esc(x.proveedor)} <span class="mut sm">(recuerda solicitar la revocación al proveedor)</span></label>`).join('')}</div>`:''}
   <div class="sec"><h3>Recordatorios (no cambian el inventario)</h3>
-   <label class="check"><input type="checkbox"> Desactivar tarjeta de acceso ${esc(f.tarjeta||'')}</label>
+   <label class="check"><input type="checkbox"> Desactivar los accesos de su credencial en el control de acceso de la oficina</label>
    <label class="check"><input type="checkbox"> Deshabilitar cuenta de correo ${esc(f.correo)}</label></div>
   <div class="bar" style="margin-top:14px"><button class="p" onclick="cerrarEgreso('${id}')">${f.estado==='Activo'?'Confirmar retiro':'Guardar'} y generar acta de devolución</button></div><div id="egErr"></div>`;
   openM();
@@ -351,7 +351,7 @@ function funcForm(id){
   <div class="row"><div><label class="f">RUT * <span id="rutOk"></span></label><input id="nfRut" value="${esc(f.rut||'')}" placeholder="Escribe solo números y dígito: 123456789" oninput="rutTipeo(this)" style="width:100%"></div>${campo('nfCorreo','Correo institucional *',f.correo,'placeholder="nombre@minciencia.gob.cl"')}</div>
   <div class="row">${campo('nfNom','Nombres *',f.nombres)}${campo('nfPat','Apellido paterno *',f.paterno)}${campo('nfMat','Apellido materno',f.materno)}</div>
   <div class="row"><div><label class="f">División / Unidad *</label><input id="nfDiv" list="divs" value="${esc(f.division||'')}" style="width:100%"><datalist id="divs">${DIVS.map(d=>`<option value="${esc(d)}">`).join('')}</datalist></div>${campo('nfDir','Dirección',f.direccion,'placeholder="Morandé 226"')}${campo('nfPiso','Piso',f.piso)}</div>
-  <div class="row">${campo('nfTarj','N° tarjeta de acceso',f.tarjeta)}${campo('nfCand','Candado',f.candado)}${id&&f.estado==='Inactivo'?`<div><label class="f">Estado</label><select id="nfEst" style="width:100%"><option>Inactivo</option><option value="Activo">Activo (reincorporar)</option></select></div>`:'<div></div>'}</div>
+  <div class="row">${id&&f.estado==='Inactivo'?`<div><label class="f">Estado</label><select id="nfEst" style="width:100%"><option>Inactivo</option><option value="Activo">Activo (reincorporar)</option></select></div>`:'<div></div>'}</div>
   <div class="bar" style="margin-top:16px"><button class="p" onclick="guardarFunc('${id||''}')">${id?'Guardar cambios':'Crear y abrir ficha'}</button></div><div id="nfErr"></div>`;
   openM();
 }
@@ -363,7 +363,7 @@ async function guardarFunc(id){
   if(!/^[^@\s]+@minciencia\.gob\.cl$/.test(correo)) return err('El correo debe ser @minciencia.gob.cl');
   const dup=D.funcionarios.find(x=>x.id!==id&&(x.rut===rut||(x.correo||'').toLowerCase()===correo));
   if(dup) return err('Ya existe un funcionario con ese RUT o correo: '+nom(dup));
-  const r={rut,correo,nombres:nfNom.value.trim().toUpperCase(),paterno:nfPat.value.trim().toUpperCase(),materno:nfMat.value.trim().toUpperCase(),division:nfDiv.value.trim(),direccion:nfDir.value.trim(),piso:nfPiso.value.trim(),tarjeta:nfTarj.value.trim(),candado:nfCand.value.trim()};
+  const r={rut,correo,nombres:nfNom.value.trim().toUpperCase(),paterno:nfPat.value.trim().toUpperCase(),materno:nfMat.value.trim().toUpperCase(),division:nfDiv.value.trim(),direccion:nfDir.value.trim(),piso:nfPiso.value.trim()};
   const cap=s=>s.split(' ').map(w=>w?w[0]+w.slice(1).toLowerCase():w).join(' '); r.nombres=cap(r.nombres); r.paterno=cap(r.paterno); r.materno=cap(r.materno);
   try{
     let fid=id;
@@ -379,8 +379,8 @@ function activoForm(fid){
   document.getElementById('mbody').innerHTML=`${fid?`<button onclick="asignarForm('${fid}')">← Volver</button>`:''}<h1 style="margin-top:${fid?12:0}px">Registrar activo nuevo</h1>
   ${fid?`<div class="banner">Quedará asignado a <b>${esc(nom(F[fid]))}</b> al guardar.</div>`:''}
   <div class="row"><div><label class="f">Categoría *</label><select id="naCat" onchange="naCampos()" style="width:100%">${Object.keys(TIPOS).filter(c=>!fid||c!=='Equipo de oficina').map(c=>`<option>${c}</option>`).join('')}</select></div><div><label class="f">Tipo</label><select id="naTipo" style="width:100%"></select></div></div>
-  <div class="row">${campo('naMarca','Marca *','','placeholder="Acer, HP, Lenovo…"')}${campo('naModelo','Modelo *','','placeholder="Travel Mate P2-15"')}</div>
-  <div class="row">${campo('naSerie','N° de serie *')}${campo('naCod','Código de inventario','','placeholder="MCTCIRMTI_…"')}</div>
+  <div class="row" id="naMM">${campo('naMarca','Marca *','','placeholder="Acer, HP, Lenovo…"')}${campo('naModelo','Modelo *','','placeholder="Travel Mate P2-15"')}</div>
+  <div class="row"><div><label class="f" id="naSerieL">N° de serie *</label><input id="naSerie" style="width:100%"></div><div id="naCodW">${campo('naCod','Código de inventario','','placeholder="MCTCIRMTI_…"')}</div></div>
   <div class="row" id="naCel">${campo('naImei','IMEI')}${campo('naSim','Serie SIM')}${campo('naNum','Número')}</div>
   <div class="row" id="naIp">${campo('naMac','MAC')}${campo('naIpx','IP')}${campo('naAnexo','Anexo')}</div>
   <div class="row">${campo('naUbic','Ubicación',fid?F[fid].direccion:'Bodega')}${campo('naObs','Observaciones')}</div>
@@ -673,34 +673,62 @@ async function salir(){ await sb.auth.signOut(); location.reload(); }
 async function entrar(){
   await sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: location.origin + location.pathname, queryParams:{ hd: DOMINIO, prompt:'select_account' } } });
 }
+const ERRORES = {
+  'Signups not allowed for this instance': 'El registro de usuarios nuevos está desactivado en Supabase. El administrador debe activar "Allow new users to sign up" en Authentication → Sign In / Providers.',
+  'access_denied': 'Se canceló el inicio de sesión o Google no autorizó la cuenta.'
+};
+let verificado = false;
+const ingresarHTML = () => `<button class="gbtn" onclick="entrar()">${G_ICON} Ingresar con cuenta institucional</button><div class="gnote">Acceso exclusivo para cuentas @${DOMINIO} autorizadas por la Unidad TI.</div>`;
+const otraCuenta = `<button class="gbtn2" onclick="entrar()">Ingresar con otra cuenta</button>`;
+function avisoSinAcceso(email, estado){
+  const t = estado === 'rechazada'
+    ? `<div class="gmsg"><h2>No tienes acceso al Inventario TI</h2><p>La cuenta <b>${esc(email)}</b> no está autorizada. Tu solicitud fue rechazada; si crees que es un error, contacta a la Unidad TI.</p></div>`
+    : `<div class="gmsg"><h2>No tienes acceso al Inventario TI</h2><p>La cuenta <b>${esc(email)}</b> todavía no está autorizada. Tu solicitud de acceso quedó registrada y un administrador debe aprobarla. Vuelve a ingresar cuando te avisen.</p></div>`;
+  gate(t + otraCuenta);
+}
+async function verificar(session){
+  if(verificado) return; verificado = true;
+  try{
+    ME = (session.user.email || '').toLowerCase();
+    const nombre = session.user.user_metadata?.full_name || '';
+    document.getElementById('meBox').textContent = ME;
+    if(!ME.endsWith('@' + DOMINIO)){
+      await sb.auth.signOut();
+      gate(`<div class="gmsg"><h2>Cuenta no permitida</h2><p><b>${esc(ME)}</b> no pertenece al dominio @${DOMINIO}. Ingresa con tu correo institucional.</p></div>` + otraCuenta); return;
+    }
+    const { data:u } = await sb.from('usuarios_ti').select('rol').eq('email', ME).maybeSingle();
+    if(!u){
+      let estado = 'pendiente';
+      try{
+        const { data:sol } = await sb.from('solicitudes_acceso').select('estado').eq('email', ME).maybeSingle();
+        if(sol) estado = sol.estado; else await sb.from('solicitudes_acceso').insert({ email: ME, nombre });
+      }catch(e){}
+      await sb.auth.signOut();          // no deja la sesión abierta a quien no tiene acceso
+      avisoSinAcceso(ME, estado); return;
+    }
+    ROL = u.rol;
+    gate('<div class="gnote" style="font-size:14px">Cargando inventario…</div>');
+    await start(); cerrarGate();
+    if(ROL === 'admin'){ const { count } = await sb.from('solicitudes_acceso').select('*', { count:'exact', head:true }).eq('estado','pendiente'); pillSol(count); }
+  }catch(e){
+    gate(`<div class="gmsg"><h2>No se pudo ingresar</h2><p>${esc(e.message || e)}</p></div>` + otraCuenta);
+  }
+}
 (async function(){
   const nav = document.querySelector('nav');
   nav.insertAdjacentHTML('beforeend', `<a data-v="usuarios" class="adm" onclick="location.hash='usuarios'"><span class="t">Control de acceso</span><span class="pill" id="pSol" style="display:none"></span></a><a onclick="salir()" style="margin-top:20px;opacity:.75"><span class="t">Cerrar sesión</span></a><div class="sm" id="meBox" style="padding:10px;color:#8ea0bd;word-break:break-all"></div>`);
-  const ingresar = `<button class="gbtn" onclick="entrar()">${G_ICON} Ingresar con cuenta institucional</button><div class="gnote">Acceso exclusivo para cuentas @${DOMINIO} autorizadas por la Unidad TI.</div>`;
+  // Errores que Supabase/Google devuelven en la URL al volver del inicio de sesión
+  const qs = new URLSearchParams(location.search), hs = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const err = qs.get('error_description') || hs.get('error_description') || qs.get('error') || hs.get('error');
+  if(err){
+    history.replaceState(null, '', location.pathname);
+    const txt = decodeURIComponent(err.replace(/\+/g,' '));
+    gate(`<div class="gmsg"><h2>No se pudo iniciar sesión</h2><p>${esc(ERRORES[txt] || txt)}</p></div>` + ingresarHTML()); return;
+  }
+  sb.auth.onAuthStateChange((ev, session) => { if(ev === 'SIGNED_IN' && session) verificar(session); });
   const { data:{ session } } = await sb.auth.getSession();
-  if(!session){ gate(ingresar); return; }
-  ME = (session.user.email || '').toLowerCase();
-  const nombre = session.user.user_metadata?.full_name || '';
-  document.getElementById('meBox').textContent = ME;
-  if(!ME.endsWith('@' + DOMINIO)){
-    await sb.auth.signOut();
-    gate(`<div class="gmsg"><h2>Cuenta no permitida</h2><p>${esc(ME)} no pertenece al dominio @${DOMINIO}.</p></div>${ingresar}`); return;
-  }
-  const { data:u } = await sb.from('usuarios_ti').select('rol').eq('email', ME).maybeSingle();
-  if(!u){
-    let { data:sol } = await sb.from('solicitudes_acceso').select('estado').eq('email', ME).maybeSingle();
-    if(!sol){ await sb.from('solicitudes_acceso').insert({ email: ME, nombre }); sol = { estado:'pendiente', nueva:true }; }
-    const msg = sol.estado === 'rechazada'
-      ? `<div class="gmsg"><h2>Acceso no autorizado</h2><p>Tu solicitud con ${esc(ME)} fue rechazada. Si crees que es un error, contacta a la Unidad TI.</p></div>`
-      : `<div class="gmsg"><h2>${sol.nueva ? 'Solicitud enviada' : 'Solicitud en revisión'}</h2><p>Tu cuenta ${esc(ME)} quedó registrada. Un administrador debe aprobar tu acceso; vuelve a ingresar cuando te avisen.</p></div>`;
-    gate(msg + `<button class="gbtn2" onclick="salir()">Cerrar sesión</button>`); return;
-  }
-  ROL = u.rol;
-  gate('<div class="gnote" style="font-size:14px">Cargando inventario…</div>');
-  try{
-    await start(); cerrarGate();
-    if(ROL === 'admin'){ const { count } = await sb.from('solicitudes_acceso').select('*', { count:'exact', head:true }).eq('estado','pendiente'); pillSol(count); }
-  }catch(e){ gate(`<div class="gmsg"><h2>Error</h2><p>${esc(e.message)}</p></div><button class="gbtn2" onclick="salir()">Cerrar sesión</button>`); }
+  if(session) verificar(session);
+  else if(!verificado) gate(ingresarHTML());
 })();
 
 </script>
