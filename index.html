@@ -78,6 +78,8 @@ label.f+input,label.f+select{width:100%}
   <a data-v="bodega"><span class="t">Bodega y accesorios</span></a>
   <a data-v="licencias"><span class="t">Licencias</span></a>
   <a data-v="fea"><span class="t">Firma electrónica</span></a>
+  <a data-v="contratos"><span class="t">Contratos de arriendo</span><span class="pill" id="pCt" style="display:none"></span></a>
+  <a data-v="bitacora"><span class="t">Bitácora</span></a>
   <a data-v="egresos"><span class="t">Egresos</span><span class="pill" id="pEg"></span></a>
   <a data-v="calidad"><span class="t">Calidad de datos</span></a>
 </nav>
@@ -95,6 +97,8 @@ function build(){
   A = Object.fromEntries(D.activos.map(a=>[a.id,a]));
   P = Object.fromEntries(D.productos.map(p=>[p.codigo,p]));
   D.licencias_asig = D.licencias_asig.filter(l=>l.vigente!==false);
+  D.contratos = D.contratos||[]; D.eventos = D.eventos||[]; D.bitacora = D.bitacora||[];
+  D.activos.forEach(a=>{ if(!a.propiedad) a.propiedad='Arrendado'; });
 }
 const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nom = f => f ? `${f.nombres} ${f.paterno} ${f.materno}`.trim() : '';
@@ -103,13 +107,13 @@ const clp = n => '$'+Math.round(n).toLocaleString('es-CL');
 const fd = s => s ? s.split('-').reverse().join('-') : '—';
 const days = s => Math.round((new Date(s)-new Date(TODAY))/864e5);
 function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2600);}
-function tagEstado(s){const m={'Activo':'t-ok','Asignado':'t-pri','Disponible':'t-ok','Activa':'t-ok','Inactivo':'t-mut','Inactiva':'t-mut','Devuelto':'t-mut','Pendiente':'t-warn','En bodega':'t-ok','En oficina':'t-mut','BACKUP':'t-warn'};return `<span class="tag ${m[s]||'t-mut'}">${esc(s)}</span>`;}
+function tagEstado(s){const m={'Activo':'t-ok','Asignado':'t-pri','Disponible':'t-ok','Activa':'t-ok','Inactivo':'t-mut','Inactiva':'t-mut','Devuelto':'t-mut','Pendiente':'t-warn','En bodega':'t-ok','En oficina':'t-mut','BACKUP':'t-warn','En servicio técnico':'t-warn','Devuelto al proveedor':'t-mut','Extraviado':'t-bad','Vigente':'t-ok','Por vencer':'t-warn','Vencido':'t-bad'};return `<span class="tag ${m[s]||'t-mut'}">${esc(s)}</span>`;}
 
 // ---------- derivados ----------
 function vigentes(fid){ return D.asignaciones.filter(x=>x.funcionario===fid && x.vigente).map(x=>({...x,a:A[x.activo]})); }
 function historial(fid){ return D.asignaciones.filter(x=>x.funcionario===fid && !x.vigente).map(x=>({...x,a:A[x.activo]})); }
 function titular(aid){ const x=D.asignaciones.find(z=>z.activo===aid && z.vigente); return x?F[x.funcionario]:null; }
-function stock(cod){ const p=P[cod]; const ent=D.entregas.filter(e=>e.codigo===cod).reduce((s,e)=>s+e.cantidad,0); return {ingresado:p.ingresado,entregado:ent,stock:p.ingresado-ent}; }
+function stock(cod){ const p=P[cod]; p.ingresado=D.compras.reduce((s,c)=>s+(c.items||[]).filter(i=>i.codigo===cod).reduce((x,i)=>x+(+i.cantidad||0),0),0); const ent=D.entregas.filter(e=>e.codigo===cod).reduce((s,e)=>s+e.cantidad,0); return {ingresado:p.ingresado,entregado:ent,stock:p.ingresado-ent}; }
 function claudePool(){ return D.licencias.find(l=>l.id==='L-CLAUDE'); }
 function claudeCfg(){ const p=claudePool(); return p&&!p.pendiente?{plan:p.plan,std:p.cupos_std||0,prem:p.cupos_prem||0,ren:p.renovacion,cupos:(p.cupos_std||0)+(p.cupos_prem||0)}:null; }
 function claudeAsig(){ return D.licencias_asig.filter(l=>l.pool==='L-CLAUDE'); }
@@ -138,8 +142,9 @@ V.panel=()=>{
   const eg=egresosPend();
   const dual=D.funcionarios.filter(f=>f.estado==='Activo'&&vigentes(f.id).filter(x=>x.a.categoria==='Pantalla').length>1);
   const multi=D.funcionarios.filter(f=>f.estado==='Activo'&&vigentes(f.id).filter(x=>x.a.categoria==='Computador').length>1);
+  const ctV=D.contratos.filter(c=>c.termino&&days(c.termino)<=90), stec=D.activos.filter(a=>a.estado==='En servicio técnico'), extr=D.activos.filter(a=>a.estado==='Extraviado'), sinCt=D.activos.filter(a=>a.propiedad==='Arrendado'&&!a.contrato&&!['Devuelto al proveedor'].includes(a.estado)&&a.categoria!=='Celular'&&a.categoria!=='Teléfono IP');
   const adobeU=D.licencias_asig.filter(l=>l.pool.startsWith('L-ADOBE')).length, adobeT=D.licencias.filter(l=>l.producto==='Adobe').reduce((s,l)=>s+l.cupos,0);
-  return `<h1>Panel</h1><div class="sub">Datos importados desde la planilla de dotación 2026 y la factura N° 16498 · ${fd(TODAY)}</div>
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><h1>Panel</h1><button class="p" onclick="exportarExcel()">Exportar inventario a Excel</button></div><div class="sub">Inventario de equipos arrendados y accesorios propios · ${fd(TODAY)}</div>
   ${BANNER}
   <div class="grid k4">
    <div class="card kpi"><div class="l">Funcionarios activos</div><div class="v">${act}</div><div class="h">${D.funcionarios.length-act} inactivos en registro</div></div>
@@ -151,6 +156,11 @@ V.panel=()=>{
   </div>
   <div class="row" style="margin-top:14px">
    <div class="card"><h2>Alertas</h2>
+    ${ctV.map(c=>`<div class="alert ${days(c.termino)<0?'bad':''}"><b>Contrato ${esc(c.numero||c.proveedor)}</b> (${esc(c.proveedor)}) ${days(c.termino)<0?'venció el':'termina el'} ${fd(c.termino)}: ${D.activos.filter(a=>a.contrato===c.id&&a.estado!=='Devuelto al proveedor').length} equipos por devolver o renovar. <a href="javascript:fichaContrato(${c.id})">Ver</a></div>`).join('')}
+    ${stec.length?`<div class="alert"><b>${stec.length} equipo(s) en servicio técnico</b> del proveedor. <a href="javascript:verEstado('En servicio técnico')">Ver</a></div>`:''}
+    ${extr.length?`<div class="alert bad"><b>${extr.length} equipo(s) extraviado(s)</b>: recuerda informar al proveedor. <a href="javascript:verEstado('Extraviado')">Ver</a></div>`:''}
+    ${sinCt.length&&D.contratos.length?`<div class="alert" style="border-color:var(--pri);background:var(--pri2)">${sinCt.length} equipos arrendados sin contrato vinculado. <a href="#contratos">Vincular</a></div>`:''}
+    ${!D.contratos.length?`<div class="alert" style="border-color:var(--pri);background:var(--pri2)">Aún no hay contratos de arriendo registrados. <a href="#contratos">Registrar contrato</a></div>`:''}
     ${eg.length?`<div class="alert bad"><b>${eg.length} funcionarios inactivos</b> todavía tienen activos, licencias o FEA vigentes. <a href="#egresos">Revisar egresos</a></div>`:''}
     ${fv.length?`<div class="alert"><b>${fv.length} firmas electrónicas</b> activas vencen en los próximos 60 días. <a href="#fea">Ver</a></div>`:''}
     ${bajos.map(p=>`<div class="alert">Stock bajo: ${esc(p.descripcion)} (${stock(p.codigo).stock})</div>`).join('')}
@@ -182,11 +192,11 @@ function renderF(){
 }
 function ficha(id){
   const f=F[id], v=vigentes(id), h=historial(id), lic=licDe(id), fea=feaDe(id), acc=accDe(id);
-  const fila=x=>`<tr><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie||x.a.imei||'')}</td><td>${x.a.numero?esc(x.a.numero):(x.a.codigo?`<span class="mono">${esc(x.a.codigo)}</span>`:'')}</td><td>${x.acta_entrega?`<a href="${esc(x.acta_entrega)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}${x.alerta?` <span class="tag t-bad">sin devolución</span>`:''}</td></tr>`;
+  const fila=x=>`<tr class="click" onclick="fichaActivo('${x.activo}')"><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie||x.a.imei||'')}</td><td>${x.a.numero?esc(x.a.numero):(x.a.codigo?`<span class="mono">${esc(x.a.codigo)}</span>`:'')}</td><td>${x.acta_entrega?`<a href="${esc(x.acta_entrega)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}${x.alerta?` <span class="tag t-bad">sin devolución</span>`:''}</td></tr>`;
   document.getElementById('mbody').innerHTML=`<h1>${esc(nom(f))}</h1><div class="sub">${tagEstado(f.estado)} · ${esc(f.division)||'Sin división'} · RUT <span class="mono">${esc(f.rut)||'—'}</span> · ${esc(f.correo)}</div>
   <div class="mut sm">${esc(f.direccion)} ${f.piso?'· Piso '+esc(f.piso):''} ${f.candado?'· Candado (registro anterior): '+esc(f.candado):''} ${f.antivirus?'· Antivirus '+esc(f.antivirus):''}</div>
   <div class="bar adm" style="margin-top:14px">${f.estado==='Activo'?`<button class="p" onclick="asignarForm('${id}')">+ Asignar activo</button><button onclick="entregaForm('${id}')">+ Entregar accesorio</button><button onclick="licForm('${id}')">+ Asignar licencia</button><button onclick="feaForm('${id}')">+ Registrar FEA</button>`:''}<button onclick="funcForm('${id}')">Editar datos</button>${f.estado==='Activo'?`<button class="d" onclick="egreso('${id}')">Registrar retiro</button>`:''}</div>
-  <div class="bar" style="margin-top:6px"><button onclick="acta('${id}','entrega')">Generar acta de entrega</button><button class="adm" onclick="acta('${id}','devolucion')">Acta de devolución</button>${f.estado==='Inactivo'&&(v.length||D.licencias_asig.some(l=>l.funcionario===id))?`<button class="d adm" onclick="egreso('${id}')">Completar egreso</button>`:''}${!D.asignaciones.some(x=>x.funcionario===id)&&!D.entregas.some(x=>x.funcionario===id)&&!D.licencias_asig.some(x=>x.funcionario===id)&&!D.fea.some(x=>x.funcionario===id)?`<button class="d adm" onclick="eliminarFunc('${id}')">Eliminar</button>`:''}</div>
+  <div class="bar" style="margin-top:6px"><button onclick="actaSel('${id}')">Generar acta de entrega</button><button class="adm" onclick="acta('${id}','devolucion')">Acta de devolución</button>${f.estado==='Inactivo'&&(v.length||D.licencias_asig.some(l=>l.funcionario===id))?`<button class="d adm" onclick="egreso('${id}')">Completar egreso</button>`:''}${!D.asignaciones.some(x=>x.funcionario===id)&&!D.entregas.some(x=>x.funcionario===id)&&!D.licencias_asig.some(x=>x.funcionario===id)&&!D.fea.some(x=>x.funcionario===id)?`<button class="d adm" onclick="eliminarFunc('${id}')">Eliminar</button>`:''}</div>
   <div class="sec"><h3>Activos asignados (${v.length})</h3>${v.length?`<table><tr><th>Tipo</th><th>Equipo</th><th>Serie / IMEI</th><th>Código / Número</th><th></th></tr>${v.map(fila).join('')}</table>`:'<div class="mut">Sin activos asignados</div>'}</div>
   <div class="sec"><h3>Accesorios entregados (bodega)</h3>${acc.length?`<table><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th></th></tr>${acc.map(e=>`<tr><td>${fd(e.fecha)}</td><td>${esc(P[e.codigo].descripcion)}</td><td>${e.cantidad}</td><td>${e.acta?`<a href="${esc(e.acta)}" target="_blank">Acta</a>`:'<span class="mut sm">sin acta</span>'}</td></tr>`).join('')}</table>`:'<div class="mut">Ninguno</div>'}</div>
   <div class="row"><div class="sec"><h3>Licencias</h3>${lic.length?lic.map(l=>`<div>${tagEstado('Activa')} ${esc(l.prod)} – ${esc(l.plan)} <span class="mut sm">desde ${fd(l.desde)}</span></div>`).join(''):'<div class="mut">Ninguna</div>'}</div>
@@ -194,16 +204,48 @@ function ficha(id){
   ${h.length?`<div class="sec"><h3>Historial (devueltos / reasignados)</h3><table>${h.map(x=>`<tr><td>${esc(x.a.categoria)}</td><td>${esc(x.a.marca)} ${esc(x.a.modelo)}</td><td class="mono">${esc(x.a.serie)}</td><td>${x.acta_devolucion?`<a href="${esc(x.acta_devolucion)}" target="_blank">Acta devolución</a>`:''} ${titular(x.activo)&&titular(x.activo).id!==id?'<span class="mut sm">hoy con '+esc(nomC(titular(x.activo)))+'</span>':''}</td></tr>`).join('')}</table></div>`:''}`;
   openM();
 }
-function acta(id,tipo,lista){
-  const f=F[id], v=tipo==='entrega'?vigentes(id):(lista?D.asignaciones.filter(x=>x.funcionario===id&&lista.includes(x.activo)).map(x=>({...x,a:A[x.activo]})).filter((x,i,arr)=>arr.findIndex(y=>y.activo===x.activo)===i):historial(id));
-  document.getElementById('mbody').innerHTML=`<div class="bar"><button onclick="ficha('${id}')">← Volver a la ficha</button><button onclick="copyActa()">Copiar texto</button>${PRINT_BTN}</div>
-  <div class="acta" id="actaTxt"><img src="${LOGO_COLOR}" alt="Ministerio de Ciencia, Tecnología, Conocimiento e Innovación" style="width:6cm;display:block;margin-bottom:18px"><h2>ACTA DE ${tipo==='entrega'?'ENTREGA':'DEVOLUCIÓN'} DE ACTIVOS</h2>
-  <p>En Santiago, a ${new Date().toLocaleDateString('es-CL',{day:'numeric',month:'long',year:'numeric'})}, la Unidad de Tecnologías de la Información ${tipo==='entrega'?'hace entrega a':'recibe de'} don(ña) <b>${esc(nom(f))}</b>, RUT <b>${esc(f.rut)}</b>, de la ${esc(f.division)}, los siguientes activos:</p>
-  <table style="width:100%;border-collapse:collapse"><tr><th>N°</th><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Serie</th><th>Cód. inventario</th></tr>
-  ${v.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.a.categoria==='Computador'?x.a.tipo:x.a.categoria)}</td><td>${esc(x.a.marca)}</td><td>${esc(x.a.modelo)}</td><td>${esc(x.a.serie||x.a.imei)}</td><td>${esc(x.a.codigo)}</td></tr>`).join('')||'<tr><td colspan="6">—</td></tr>'}
-  ${(tipo==='entrega'?accDe(id):[]).map((e,i)=>`<tr><td>${v.length+i+1}</td><td>Accesorio</td><td colspan="3">${esc(P[e.codigo].descripcion)} (x${e.cantidad})</td><td>${esc(e.codigo)}</td></tr>`).join('')}</table>
-  <p style="font-size:12.5px">${tipo==='entrega'?'El funcionario se compromete a hacer buen uso de los equipos y a devolverlos en buen estado al término de sus funciones o cuando le sean requeridos.':'Los activos se reciben en el estado que se indica, quedando el funcionario liberado de su responsabilidad sobre ellos.'}</p>
+function licAsig(fid){ return D.licencias_asig.filter(l=>l.funcionario===fid).map(l=>{const p=D.licencias.find(x=>x.id===l.pool);return {...l,prod:p.producto,plan:p.producto==='Claude'?l.tipo:p.plan};}); }
+// sel: {activos:[ids], entregas:[objetos], lic:[ids]} · sin sel = todo lo vigente
+function acta(id,tipo,sel){
+  const f=F[id];
+  let v, acc=[], lic=[];
+  if(tipo==='entrega'){
+    v=vigentes(id); acc=accDe(id); lic=licAsig(id);
+    if(sel){ v=v.filter(x=>(sel.activos||[]).includes(x.activo)); acc=acc.filter(e=>(sel.entregas||[]).includes(e)); lic=lic.filter(l=>(sel.lic||[]).includes(l.id)); }
+  } else {
+    const lista=sel&&sel.activos;
+    v=lista?D.asignaciones.filter(x=>x.funcionario===id&&lista.includes(x.activo)).map(x=>({...x,a:A[x.activo]})).filter((x,i,arr)=>arr.findIndex(y=>y.activo===x.activo)===i):historial(id);
+  }
+  const parcial=tipo==='entrega'&&sel&&(v.length+acc.length+lic.length)<(vigentes(id).length+accDe(id).length+licAsig(id).length);
+  const det=a=>[a.imei?'IMEI '+a.imei:'',a.numero?'N° '+a.numero:'',a.anexo?'Anexo '+a.anexo:'',a.codigo?'Cód. '+a.codigo:''].filter(Boolean).join(' · ');
+  const th='style="text-align:left"';
+  document.getElementById('mbody').innerHTML=`<div class="bar"><button onclick="ficha('${id}')">← Volver a la ficha</button>${tipo==='entrega'?`<button onclick="actaSel('${id}')">Elegir qué incluir</button>`:''}<button onclick="copyActa()">Copiar texto</button>${PRINT_BTN}</div>
+  <div class="acta" id="actaTxt"><img src="${LOGO_COLOR}" alt="Ministerio de Ciencia, Tecnología, Conocimiento e Innovación" style="width:6cm;display:block;margin-bottom:18px"><h2>ACTA DE ${tipo==='entrega'?'ENTREGA':'DEVOLUCIÓN'} DE ACTIVOS${parcial?' (COMPLEMENTARIA)':''}</h2>
+  <p>En Santiago, a ${new Date().toLocaleDateString('es-CL',{day:'numeric',month:'long',year:'numeric'})}, la Unidad de Tecnologías de la Información ${tipo==='entrega'?'hace entrega a':'recibe de'} don(ña) <b>${esc(nom(f))}</b>, RUT <b>${esc(f.rut)}</b>, de <b>${esc(f.division)}</b>, ${parcial?'como complemento a la dotación ya asignada, ':''}lo siguiente:</p>
+  ${v.length?`<p style="margin:14px 0 6px"><b>Equipos</b></p><table style="width:100%;border-collapse:collapse"><tr><th ${th}>N°</th><th ${th}>Tipo</th><th ${th}>Marca</th><th ${th}>Modelo</th><th ${th}>N° de serie</th><th ${th}>Detalle</th></tr>
+  ${v.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.a.categoria==='Computador'?x.a.tipo:x.a.categoria)}</td><td>${esc(x.a.marca)}</td><td>${esc(x.a.modelo)}</td><td>${esc(x.a.serie)}</td><td>${esc(det(x.a))}</td></tr>`).join('')}</table>`:''}
+  ${acc.length?`<p style="margin:14px 0 6px"><b>Accesorios y periféricos</b></p><table style="width:100%;border-collapse:collapse"><tr><th ${th}>N°</th><th ${th}>Descripción</th><th ${th}>Código</th><th ${th}>Cantidad</th><th ${th}>Fecha entrega</th></tr>
+  ${acc.map((e,i)=>`<tr><td>${i+1}</td><td>${esc(P[e.codigo].descripcion)}</td><td>${esc(e.codigo)}</td><td>${e.cantidad}</td><td>${fd(e.fecha)}</td></tr>`).join('')}</table>`:''}
+  ${lic.length?`<p style="margin:14px 0 6px"><b>Licencias de software</b></p><table style="width:100%;border-collapse:collapse"><tr><th ${th}>N°</th><th ${th}>Producto</th><th ${th}>Plan</th><th ${th}>Cuenta</th><th ${th}>Desde</th></tr>
+  ${lic.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.prod)}</td><td>${esc(l.plan)}</td><td>${esc(l.correo||f.correo)}</td><td>${fd(l.desde)}</td></tr>`).join('')}</table>`:''}
+  ${!v.length&&!acc.length&&!lic.length?'<p><i>Sin ítems seleccionados.</i></p>':''}
+  <p style="font-size:12.5px;margin-top:16px">${tipo==='entrega'?'El funcionario se compromete a hacer buen uso de los equipos, accesorios y licencias, a no cederlos a terceros y a devolverlos en buen estado al término de sus funciones o cuando le sean requeridos.':'Los activos se reciben en el estado que se indica, quedando el funcionario liberado de su responsabilidad sobre ellos.'}</p>
   <div class="firmas"><div>${esc(nom(f))}<br>${tipo==='entrega'?'Recibe':'Entrega'}</div><div>Unidad TI<br>${tipo==='entrega'?'Entrega':'Recibe'}</div></div></div>`;
+  openM();
+}
+function actaSel(id){
+  const v=vigentes(id), acc=accDe(id), lic=licAsig(id);
+  window._accSel=acc;
+  document.getElementById('mbody').innerHTML=`<button onclick="ficha('${id}')">← Volver</button><h1 style="margin-top:12px">Acta de entrega · ${esc(nomC(F[id]))}</h1><div class="sub">Marca lo que debe ir en el acta. Por defecto va todo lo que tiene asignado.</div>
+  ${v.length?`<div class="sec"><h3>Equipos</h3>${v.map(x=>`<label class="check"><input type="checkbox" class="sA" value="${x.activo}" checked> ${esc(x.a.categoria)} · ${esc(x.a.marca)} ${esc(x.a.modelo)} <span class="mono mut">${esc(x.a.serie||x.a.imei)}</span></label>`).join('')}</div>`:''}
+  ${acc.length?`<div class="sec"><h3>Accesorios</h3>${acc.map((e,i)=>`<label class="check"><input type="checkbox" class="sE" value="${i}" checked> ${esc(P[e.codigo].descripcion)} (x${e.cantidad}) <span class="mut sm">${fd(e.fecha)}</span></label>`).join('')}</div>`:''}
+  ${lic.length?`<div class="sec"><h3>Licencias</h3>${lic.map(l=>`<label class="check"><input type="checkbox" class="sL" value="${l.id}" checked> ${esc(l.prod)} ${esc(l.plan)}</label>`).join('')}</div>`:''}
+  <div class="bar" style="margin-top:14px"><button class="p" onclick="actaDeSel('${id}')">Generar acta</button></div>`;
+  openM();
+}
+function actaDeSel(id){
+  const g=c=>[...document.querySelectorAll(c)].filter(x=>x.checked).map(x=>x.value);
+  acta(id,'entrega',{activos:g('.sA'), entregas:g('.sE').map(i=>window._accSel[+i]), lic:g('.sL').map(x=>isNaN(+x)?x:+x)});
 }
 function copyActa(){ navigator.clipboard.writeText(document.getElementById('actaTxt').innerText).then(()=>toast('Acta copiada'),()=>toast('No se pudo copiar')); }
 function asignarForm(id){
@@ -215,25 +257,25 @@ function asignarForm(id){
   <div class="mut sm" style="margin-top:6px">Un funcionario puede tener varios activos: por ejemplo, notebook + 2 pantallas.</div>
   <div class="bar" style="margin-top:14px"><button class="p" onclick="doAsig('${id}')">Asignar</button></div>`;
 }
-async function doAsig(id){ const aid=document.getElementById('selA').value; if(!aid)return; try{ await S.asignar(aid,id); toast('Activo asignado'); go._keep=true; go(); ficha(id);}catch(e){toast(e.message);} }
+async function doAsig(id){ const aid=document.getElementById('selA').value; if(!aid)return; try{ await S.asignar(aid,id); toast('Activo asignado'); go._keep=true; go(); acta(id,'entrega',{activos:[aid]});}catch(e){toast(e.message);} }
 let aq='',ac='',ae='';
 V.activos=()=>`<h1>Activos</h1><div class="sub">Equipos con serie: cada pantalla, celular y teléfono IP es un activo propio</div>
   <div class="card"><div class="bar"><input type="search" id="aq" placeholder="Buscar serie, IMEI, modelo, titular, ubicación" value="${esc(aq)}">
   <select id="ac"><option value="">Todas las categorías</option>${[...new Set(D.activos.map(a=>a.categoria))].map(c=>`<option ${c===ac?'selected':''}>${c}</option>`).join('')}</select>
-  <select id="ae"><option value="">Todos los estados</option>${[...new Set(D.activos.map(a=>a.estado))].map(c=>`<option ${c===ae?'selected':''}>${c}</option>`).join('')}</select><span class="mut sm" id="acnt"></span><button class="p adm" style="margin-left:auto" onclick="activoForm()">+ Nuevo activo</button></div><div id="at"></div></div>`;
+  <select id="ae"><option value="">Todos los estados</option>${[...new Set(D.activos.map(a=>a.estado))].map(c=>`<option ${c===ae?'selected':''}>${c}</option>`).join('')}</select><span class="mut sm" id="acnt"></span><button style="margin-left:auto" onclick="exportarExcel()">Exportar a Excel</button><button class="p adm" onclick="activoForm()">+ Nuevo activo</button></div><div id="at"></div></div>`;
 function renderA(){
   const q=aq.toLowerCase();
   const L=D.activos.filter(a=>(!ac||a.categoria===ac)&&(!ae||a.estado===ae)).map(a=>({a,t:titular(a.id)})).filter(({a,t})=>!q||[a.serie,a.imei,a.modelo,a.marca,a.ubicacion,a.codigo,a.numero,a.titular_texto,t&&nom(t)].join(' ').toLowerCase().includes(q));
   document.getElementById('acnt').textContent=L.length+' activos';
-  document.getElementById('at').innerHTML=`<table><tr><th>Categoría</th><th>Equipo</th><th>Serie / IMEI</th><th>Detalle</th><th>Estado</th><th>Titular / Ubicación</th></tr>${L.slice(0,400).map(({a,t})=>`<tr ${t?`class="click" onclick="ficha('${t.id}')"`:''}><td>${esc(a.categoria==='Computador'?a.tipo:a.categoria)}</td><td>${esc(a.marca)} ${esc(a.modelo)}</td><td class="mono">${esc(a.serie||'')}${a.imei?'<br>'+esc(a.imei):''}</td><td class="sm">${[a.codigo,a.numero,a.anexo?'Anexo '+a.anexo:'',a.ip,a.clave_protegida?'🔒 clave (solo admin)':''].filter(Boolean).map(esc).join(' · ')}</td><td>${tagEstado(a.estado)}</td><td>${t?'<b>'+esc(nomC(t))+'</b>':esc(a.titular_texto)}<div class="mut sm">${esc(a.ubicacion)}</div></td></tr>`).join('')}</table>${L.length>400?'<div class="mut sm" style="padding:8px">Mostrando 400; usa los filtros.</div>':''}`;
+  document.getElementById('at').innerHTML=`<table><tr><th>Categoría</th><th>Equipo</th><th>Serie / IMEI</th><th>Detalle</th><th>Estado</th><th>Titular / Ubicación</th></tr>${L.slice(0,400).map(({a,t})=>`<tr class="click" onclick="fichaActivo('${a.id}')"><td>${esc(a.categoria==='Computador'?a.tipo:a.categoria)}</td><td>${esc(a.marca)} ${esc(a.modelo)}</td><td class="mono">${esc(a.serie||'')}${a.imei?'<br>'+esc(a.imei):''}</td><td class="sm">${[a.codigo,a.numero,a.anexo?'Anexo '+a.anexo:'',a.ip,a.clave_protegida?'🔒 clave (solo admin)':''].filter(Boolean).map(esc).join(' · ')}</td><td>${tagEstado(a.estado)}</td><td>${t?'<b>'+esc(nomC(t))+'</b>':esc(a.titular_texto)}<div class="mut sm">${esc(a.ubicacion)}</div></td></tr>`).join('')}</table>${L.length>400?'<div class="mut sm" style="padding:8px">Mostrando 400; usa los filtros.</div>':''}`;
 }
 V.bodega=()=>{
-  const c=D.compras[0];
-  return `<h1>Bodega y accesorios</h1><div class="sub">Stock calculado automáticamente: ingresos por factura menos entregas</div>
-  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h2>Factura N° ${c.factura} · ${esc(c.proveedor)} · ${fd(c.fecha)} · OC ${c.oc}</h2><button class="p adm" onclick="entregaForm()">Registrar entrega</button></div>
+  return `<h1>Bodega y accesorios</h1><div class="sub">Accesorios y componentes comprados. Stock = compras registradas menos entregas.</div>
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2>Stock por producto</h2><div class="bar adm" style="margin:0"><button onclick="compraForm()">+ Registrar compra</button><button class="p" onclick="entregaForm()">Registrar entrega</button></div></div>
   <table><tr><th>Código</th><th>Producto</th><th>Ingresado</th><th>Entregado</th><th>Stock</th><th>Mín.</th><th>Estado</th><th>Valor stock</th></tr>
   ${D.productos.map(p=>{const s=stock(p.codigo);const st=s.stock<0?'<span class="tag t-bad">Negativo</span>':s.stock===0?'<span class="tag t-bad">Agotado</span>':s.stock<=p.stock_min?'<span class="tag t-warn">Stock bajo</span>':'<span class="tag t-ok">OK</span>';
   return `<tr><td class="mono">${esc(p.codigo)}</td><td>${esc(p.descripcion)}</td><td>${s.ingresado}</td><td>${s.entregado}</td><td><b>${s.stock}</b></td><td>${p.stock_min}</td><td>${st}</td><td>${clp(s.stock*p.precio)}</td></tr>`;}).join('')}</table></div>
+  <div class="card" style="margin-top:14px"><h2>Compras registradas (${D.compras.length})</h2><table><tr><th>Fecha</th><th>Factura</th><th>Proveedor</th><th>OC</th><th>Ítems</th><th>Total neto</th></tr>${D.compras.map(c=>`<tr><td>${fd(c.fecha)}</td><td>${esc(c.factura)}</td><td>${esc(c.proveedor)}</td><td>${esc(c.oc||'')}</td><td>${(c.items||[]).reduce((s,i)=>s+i.cantidad,0)}</td><td>${clp((c.items||[]).reduce((s,i)=>s+i.cantidad*(+i.precio||0),0))}</td></tr>`).join('')}</table></div>
   <div class="card" style="margin-top:14px"><h2>Entregas registradas (${D.entregas.length})</h2><table><tr><th>Fecha</th><th>Producto</th><th>Cant.</th><th>Funcionario</th><th>Unidad</th><th>Acta</th></tr>
   ${D.entregas.slice().reverse().map(e=>{const f=F[e.funcionario];return `<tr ${f?`class="click" onclick="ficha('${f.id}')"`:''}><td>${fd(e.fecha)}</td><td>${esc(P[e.codigo].descripcion.slice(0,48))}</td><td>${e.cantidad}</td><td>${f?'<b>'+esc(nomC(f))+'</b>':esc(e.titular_texto)+' <span class="tag t-warn">no vinculado</span>'}<div class="mut sm mono">${esc(e.rut)}</div></td><td>${esc(e.unidad)}</td><td>${e.acta?`<a href="${esc(e.acta)}" target="_blank">Ver</a>`:'<span class="tag t-warn">Falta</span>'}</td></tr>`;}).join('')}</table></div>`;
 };
@@ -250,7 +292,7 @@ async function doEntrega(){
   const fid=eF.value, cod=eP.value, n=+eC.value; if(n<1)return;
   if(stock(cod).stock<n){document.getElementById('eErr').innerHTML='<span class="tag t-bad">Stock insuficiente</span>';return;}
   const f=F[fid]; const e={fecha:TODAY,codigo:cod,cantidad:n,funcionario:fid,titular_texto:nom(f),rut:f.rut,unidad:f.division,acta:''};
-  try{ await S.entregar(e); toast('Entrega registrada'); go._keep=true; go(); acta(fid,'entrega'); }catch(er){ document.getElementById('eErr').innerHTML='<span class="tag t-bad">'+esc(er.message)+'</span>'; }
+  try{ await S.entregar(e); toast('Entrega registrada'); go._keep=true; go(); const nueva=D.entregas.filter(x=>x.funcionario===fid&&x.codigo===cod).pop(); acta(fid,'entrega',{entregas:[nueva]}); }catch(er){ document.getElementById('eErr').innerHTML='<span class="tag t-bad">'+esc(er.message)+'</span>'; }
 }
 V.licencias=()=>{
   const pools=D.licencias.filter(l=>l.producto==='Adobe');
@@ -314,7 +356,7 @@ async function cerrarEgreso(id){
   const r={fecha:egF.value||TODAY, activos:val('.ckA'), pendientes:todos.filter(a=>!val('.ckA').includes(a)), licencias:val('.ckL').map(Number), fea:val('.ckF').map(x=>isNaN(+x)?x:+x)};
   try{
     await S.retiro(id,r); go._keep=true; go();
-    if(r.activos.length) acta(id,'devolucion',r.activos); else ficha(id);
+    if(r.activos.length) acta(id,'devolucion',{activos:r.activos}); else ficha(id);
     toast(r.pendientes.length?`Retiro registrado · ${r.pendientes.length} activo(s) pendiente(s) de devolución`:'Retiro registrado: los activos vuelven a disponible'); setPill();
   }catch(e){ egErr.innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
 }
@@ -383,6 +425,7 @@ function activoForm(fid){
   <div class="row"><div><label class="f" id="naSerieL">N° de serie *</label><input id="naSerie" style="width:100%"></div><div id="naCodW">${campo('naCod','Código de inventario','','placeholder="MCTCIRMTI_…"')}</div></div>
   <div class="row" id="naCel">${campo('naImei','IMEI')}${campo('naSim','Serie SIM')}${campo('naNum','Número')}</div>
   <div class="row" id="naIp">${campo('naMac','MAC')}${campo('naIpx','IP')}${campo('naAnexo','Anexo')}</div>
+  <div class="row"><div><label class="f">Propiedad</label><select id="naProp" style="width:100%"><option>Arrendado</option><option>Propio</option></select></div><div><label class="f">Contrato de arriendo</label><select id="naCt" style="width:100%"><option value="">— Sin contrato —</option>${D.contratos.map(c=>`<option value="${c.id}">${esc(c.proveedor)} · ${esc(c.numero||'')}</option>`).join('')}</select></div></div>
   <div class="row">${campo('naUbic','Ubicación',fid?F[fid].direccion:'Bodega')}${campo('naObs','Observaciones')}</div>
   <div class="bar" style="margin-top:16px"><button class="p" onclick="guardarActivo('${fid||''}')">${fid?'Registrar y asignar':'Registrar activo'}</button></div><div id="naErr"></div>`;
   naCampos(); openM();
@@ -394,12 +437,12 @@ async function guardarActivo(fid){
   if(!naMarca.value.trim()||!naModelo.value.trim()||!serie) return err('Completa marca, modelo y serie');
   const dup=D.activos.find(a=>a.categoria===c&&(a.serie||'').toUpperCase()===serie);
   if(dup) return err('Ya existe un activo con esa serie ('+dup.marca+' '+dup.modelo+', '+dup.estado+')');
-  const r={categoria:c,tipo:naTipo.value,marca:naMarca.value.trim(),modelo:naModelo.value.trim(),serie,codigo:naCod.value.trim(),ubicacion:naUbic.value.trim(),obs:naObs.value.trim(),estado:c==='Equipo de oficina'?'En oficina':'Disponible'};
+  const r={categoria:c,tipo:naTipo.value,marca:naMarca.value.trim(),modelo:naModelo.value.trim(),serie,codigo:naCod.value.trim(),ubicacion:naUbic.value.trim(),obs:naObs.value.trim(),estado:c==='Equipo de oficina'?'En oficina':'Disponible',propiedad:naProp.value,contrato:naProp.value==='Arrendado'&&naCt.value?+naCt.value:null};
   if(c==='Celular') Object.assign(r,{imei:naImei.value.trim(),sim:naSim.value.trim(),numero:naNum.value.trim()});
   if(c==='Teléfono IP') Object.assign(r,{mac:naMac.value.trim(),ip:naIpx.value.trim(),anexo:naAnexo.value.trim()});
   try{
     const aid=await S.crearActivo(r);
-    if(fid){ await S.asignar(aid,fid); toast('Activo registrado y asignado'); go._keep=true; go(); ficha(fid); }
+    if(fid){ await S.asignar(aid,fid); toast('Activo registrado y asignado'); go._keep=true; go(); acta(fid,'entrega',{activos:[aid]}); }
     else { toast('Activo registrado'); closeM(); go(); }
   }catch(e){ err(e.message); }
 }
@@ -416,7 +459,7 @@ function licForm(fid){
 }
 async function guardarLic(fid){
   const [pool,tipo]=lSel.value.split('|'); const f=F[fid];
-  try{ await S.asignarLicencia({pool,funcionario:fid,tipo:tipo||null,correo:f.correo,unidad:f.division}); toast('Licencia asignada'); go._keep=true; go(); ficha(fid); }
+  try{ await S.asignarLicencia({pool,funcionario:fid,tipo:tipo||null,correo:f.correo,unidad:f.division}); toast('Licencia asignada'); go._keep=true; go(); const nl=D.licencias_asig.filter(l=>l.funcionario===fid&&l.pool===pool).pop(); acta(fid,'entrega',{lic:nl?[nl.id]:[]}); }
   catch(e){ document.getElementById('lErr').innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
 }
 function feaForm(fid){
@@ -434,11 +477,180 @@ async function guardarFea(fid){
   try{ await S.crearFea({proveedor:feP.value,estado:feE.value,inicio:feI.value||null,vence:feV.value||null,obs:feO.value.trim(),funcionario:fid,rut:f.rut,correo:f.correo}); toast('Firma electrónica registrada'); go._keep=true; go(); ficha(fid); }
   catch(e){ document.getElementById('feErr').innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
 }
+
+// ---------- Contratos de arriendo ----------
+function ctDe(a){ return a&&a.contrato?D.contratos.find(c=>c.id===a.contrato):null; }
+function ctEstado(c){ if(!c.termino) return 'Vigente'; const d=days(c.termino); return d<0?'Vencido':d<=90?'Por vencer':'Vigente'; }
+V.contratos=()=>{
+  const sin=D.activos.filter(a=>a.propiedad==='Arrendado'&&!a.contrato&&a.estado!=='Devuelto al proveedor');
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start"><h1>Contratos de arriendo</h1><button class="p adm" onclick="contratoForm()">+ Nuevo contrato</button></div><div class="sub">Equipos, pantallas e impresoras son arrendados. El Panel avisa 90 días antes del término de cada contrato.</div>
+  <div class="card">${D.contratos.length?`<table><tr><th>Proveedor</th><th>N° contrato / OC</th><th>Inicio</th><th>Término</th><th>Estado</th><th>Equipos</th><th>Valor mensual</th></tr>${D.contratos.slice().sort((a,b)=>(a.termino||'9')<(b.termino||'9')?-1:1).map(c=>`<tr class="click" onclick="fichaContrato(${c.id})"><td><b>${esc(c.proveedor)}</b><div class="mut sm">${esc(c.descripcion||'')}</div></td><td>${esc(c.numero||'')}</td><td>${fd(c.inicio)}</td><td>${fd(c.termino)}${c.termino?`<div class="mut sm">${days(c.termino)<0?'hace '+(-days(c.termino)):'en '+days(c.termino)} días</div>`:''}</td><td>${tagEstado(ctEstado(c))}</td><td>${D.activos.filter(a=>a.contrato===c.id).length}</td><td>${c.valor_mensual?clp(c.valor_mensual):'—'}</td></tr>`).join('')}</table>`:'<div class="empty">Aún no hay contratos. Registra el primero con “+ Nuevo contrato”.</div>'}</div>
+  <div class="card" style="margin-top:14px"><h2>Equipos arrendados sin contrato vinculado <span class="tag t-warn">${sin.length}</span></h2><div class="mut sm">Abre un contrato y usa “Vincular equipos” para asociarlos, por ejemplo pegando la lista de series que entrega el proveedor.</div></div>`;
+};
+function contratoForm(id){
+  const c=id?D.contratos.find(x=>x.id===id):{};
+  document.getElementById('mbody').innerHTML=`${id?`<button onclick="fichaContrato(${id})">← Volver</button>`:''}<h1 style="margin-top:${id?12:0}px">${id?'Editar contrato':'Nuevo contrato de arriendo'}</h1>
+  <div class="row">${campo('ctProv','Proveedor *',c.proveedor)}${campo('ctNum','N° contrato / OC / convenio marco',c.numero)}</div>
+  ${campo('ctDesc','Descripción',c.descripcion,'placeholder="Ej: Arriendo de notebooks y pantallas 2025-2027"')}
+  <div class="row"><div><label class="f">Inicio</label><input type="date" id="ctIni" value="${c.inicio||''}" style="width:100%"></div><div><label class="f">Término *</label><input type="date" id="ctTer" value="${c.termino||''}" style="width:100%"></div>${campo('ctVal','Valor mensual (CLP)',c.valor_mensual,'type="number" min="0"')}</div>
+  ${campo('ctSop','Soporte incluido',c.soporte,'placeholder="Ej: reemplazo en 48 h, mesa de ayuda del proveedor"')}${campo('ctObs','Observaciones',c.obs)}
+  <div class="bar" style="margin-top:14px"><button class="p" onclick="guardarContrato(${id||0})">${id?'Guardar cambios':'Crear contrato'}</button></div><div id="ctErr"></div>`;
+  openM();
+}
+async function guardarContrato(id){
+  if(!ctProv.value.trim()||!ctTer.value){ ctErr.innerHTML='<span class="tag t-bad">Completa proveedor y fecha de término</span>'; return; }
+  const r={proveedor:ctProv.value.trim(),numero:ctNum.value.trim(),descripcion:ctDesc.value.trim(),inicio:ctIni.value||null,termino:ctTer.value,valor_mensual:ctVal.value?+ctVal.value:null,soporte:ctSop.value.trim(),obs:ctObs.value.trim()};
+  try{ const nid=id?(await S.editarContrato(id,r),id):await S.crearContrato(r); toast(id?'Contrato actualizado':'Contrato creado'); go._keep=true; go(); fichaContrato(nid); }catch(e){ ctErr.innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; }
+}
+function fichaContrato(id){
+  const c=D.contratos.find(x=>x.id===id); if(!c) return;
+  const eq=D.activos.filter(a=>a.contrato===id), porCat={}; eq.forEach(a=>porCat[a.categoria]=(porCat[a.categoria]||0)+1);
+  document.getElementById('mbody').innerHTML=`<h1>${esc(c.proveedor)} · ${esc(c.numero||'')}</h1><div class="sub">${tagEstado(ctEstado(c))} · ${fd(c.inicio)} al ${fd(c.termino)}${c.valor_mensual?' · '+clp(c.valor_mensual)+' mensual':''}</div>
+  ${c.descripcion?`<div>${esc(c.descripcion)}</div>`:''}${c.soporte?`<div class="mut sm" style="margin-top:4px">Soporte: ${esc(c.soporte)}</div>`:''}
+  <div class="bar adm" style="margin-top:14px"><button class="p" onclick="vincularForm(${id})">Vincular equipos</button><button onclick="contratoForm(${id})">Editar</button></div>
+  <div class="sec"><h3>Equipos vinculados (${eq.length})</h3><div class="mut sm" style="margin-bottom:6px">${Object.entries(porCat).map(([k,v])=>v+' '+k.toLowerCase()).join(' · ')||'Ninguno'}</div>
+  ${eq.length?`<table><tr><th>Equipo</th><th>Serie</th><th>Estado</th><th>Titular</th></tr>${eq.map(a=>{const t=titular(a.id);return `<tr class="click" onclick="fichaActivo('${a.id}')"><td>${esc(a.categoria)} · ${esc(a.marca)} ${esc(a.modelo)}</td><td class="mono">${esc(a.serie)}</td><td>${tagEstado(a.estado)}</td><td>${t?esc(nomC(t)):'—'}</td></tr>`;}).join('')}</table>`:''}</div>`;
+  openM();
+}
+function vincularForm(id){
+  const cand=D.activos.filter(a=>a.propiedad!=='Propio'&&a.contrato!==id&&a.estado!=='Devuelto al proveedor');
+  window._vc=cand;
+  document.getElementById('mbody').innerHTML=`<button onclick="fichaContrato(${id})">← Volver</button><h1 style="margin-top:12px">Vincular equipos al contrato</h1>
+  <label class="f">Opción 1 · Pega la lista de series del proveedor (una por línea)</label><textarea id="vcSer" rows="4" style="width:100%" placeholder="NXVVTAL0033160F0DA7600&#10;1CR0110918"></textarea><div class="bar" style="margin-top:6px"><button onclick="vcMarcarSeries()">Marcar estas series</button><span id="vcMsg" class="sm"></span></div>
+  <label class="f">Opción 2 · Busca y marca</label><div class="bar"><input id="vcQ" placeholder="Modelo, serie, categoría…" oninput="vcFiltra()" style="flex:1"><label class="sm"><input type="checkbox" id="vcAll" onchange="vcTodos(this.checked)"> marcar los visibles</label></div>
+  <div id="vcL" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px">${cand.map((a,i)=>`<label class="check vcR" data-t="${esc((a.categoria+' '+a.marca+' '+a.modelo+' '+a.serie).toLowerCase())}"><input type="checkbox" class="vcC" value="${i}"> ${esc(a.categoria)} · ${esc(a.marca)} ${esc(a.modelo)} <span class="mono mut">${esc(a.serie)}</span>${a.contrato?' <span class="tag t-warn">en otro contrato</span>':''}</label>`).join('')}</div>
+  <div class="bar" style="margin-top:12px"><button class="p" onclick="vcGuardar(${id})">Vincular marcados</button><span id="vcN" class="mut sm"></span></div>`;
+}
+function vcFiltra(){ const q=vcQ.value.toLowerCase(); document.querySelectorAll('.vcR').forEach(r=>r.style.display=r.dataset.t.includes(q)?'':'none'); }
+function vcTodos(v){ document.querySelectorAll('.vcR').forEach(r=>{ if(r.style.display!=='none') r.querySelector('input').checked=v; }); }
+function vcMarcarSeries(){ const s=new Set(vcSer.value.split(/[\s,;]+/).map(x=>x.trim().toUpperCase()).filter(Boolean)); let n=0; const enc=new Set(); document.querySelectorAll('.vcC').forEach(c=>{ const a=window._vc[+c.value]; if(s.has((a.serie||'').toUpperCase())){ c.checked=true; n++; enc.add((a.serie||'').toUpperCase()); } }); const falt=[...s].filter(x=>!enc.has(x)); vcMsg.innerHTML=`<span class="tag t-ok">${n} marcados</span>`+(falt.length?` <span class="tag t-warn">${falt.length} no encontrados: ${esc(falt.slice(0,5).join(', '))}${falt.length>5?'…':''}</span>`:''); }
+async function vcGuardar(id){ const ids=[...document.querySelectorAll('.vcC')].filter(c=>c.checked).map(c=>window._vc[+c.value].id); if(!ids.length){ vcN.textContent='Marca al menos un equipo'; return; } try{ await S.vincularContrato(ids,id); toast(ids.length+' equipos vinculados'); go._keep=true; go(); fichaContrato(id); }catch(e){ toast(e.message); } }
+
+// ---------- Ficha del activo y cambio de estado ----------
+function verEstado(e){ ae=e; ac=''; aq=''; location.hash='activos'; }
+async function fichaActivo(aid){
+  const a=A[aid]; if(!a) return; const t=titular(aid), c=ctDe(a);
+  const hist=D.asignaciones.filter(x=>x.activo===aid).map(x=>({...x,f:F[x.funcionario]})).sort((x,y)=>(y.vigente-x.vigente)||String(y.hasta||'').localeCompare(String(x.hasta||'')));
+  const ev=(D.eventos||[]).filter(e=>e.activo===aid).sort((x,y)=>String(y.fecha).localeCompare(String(x.fecha)));
+  const det=[a.imei?'IMEI '+a.imei:'',a.sim?'SIM '+a.sim:'',a.numero?'N° '+a.numero:'',a.anexo?'Anexo '+a.anexo:'',a.mac?'MAC '+a.mac:'',a.ip?'IP '+a.ip:'',a.codigo?'Cód. '+a.codigo:''].filter(Boolean).join(' · ');
+  document.getElementById('mbody').innerHTML=`<h1>${esc(a.categoria==='Computador'?a.tipo:a.categoria)} ${esc(a.marca)} ${esc(a.modelo)}</h1><div class="sub">${tagEstado(a.estado)} · Serie <span class="mono">${esc(a.serie||'—')}</span> · ${esc(a.propiedad||'')}${c?` · contrato <a href="javascript:fichaContrato(${c.id})">${esc(c.numero||c.proveedor)}</a> (término ${fd(c.termino)})`:a.propiedad==='Arrendado'?' · <span class="tag t-warn">sin contrato</span>':''}</div>
+  ${det?`<div class="mut sm">${esc(det)}</div>`:''}<div class="mut sm">${esc(a.ubicacion||'')} ${a.obs?'· '+esc(a.obs):''}</div>
+  ${t?`<div style="margin-top:10px">Asignado a <a href="javascript:ficha('${t.id}')"><b>${esc(nom(t))}</b></a> · ${esc(t.division)}</div>`:''}
+  <div class="bar adm" style="margin-top:14px"><button class="p" onclick="estadoForm('${aid}')">Cambiar estado</button>${a.propiedad==='Arrendado'?`<select onchange="cambiarContrato('${aid}',this.value)"><option value="">Contrato: ${c?esc(c.numero||c.proveedor):'ninguno'}</option>${D.contratos.filter(x=>x.id!==a.contrato).map(x=>`<option value="${x.id}">→ ${esc(x.proveedor)} · ${esc(x.numero||'')}</option>`).join('')}</select>`:''}</div>
+  <div class="sec"><h3>Historial de asignaciones (${hist.length})</h3>${hist.length?`<table><tr><th>Funcionario</th><th>Desde</th><th>Hasta</th><th>Actas</th></tr>${hist.map(x=>`<tr><td>${x.f?`<a href="javascript:ficha('${x.f.id}')">${esc(nomC(x.f))}</a>`:'—'} ${x.vigente?'<span class="tag t-pri">actual</span>':''}</td><td>${fd(x.desde)}</td><td>${x.vigente?'—':fd(x.hasta)}</td><td class="sm">${x.acta_entrega?`<a href="${esc(x.acta_entrega)}" target="_blank">entrega</a> `:''}${x.acta_devolucion?`<a href="${esc(x.acta_devolucion)}" target="_blank">devolución</a>`:''}</td></tr>`).join('')}</table>`:'<div class="mut">Nunca asignado</div>'}</div>
+  <div class="sec"><h3>Estados y servicio técnico</h3>${ev.length?`<table><tr><th>Fecha</th><th>Estado</th><th>Detalle</th><th>Registró</th></tr>${ev.map(e=>`<tr><td>${fd(e.fecha)}</td><td>${tagEstado(e.estado)}</td><td class="sm">${esc(e.nota||'')}${e.caso?' · Caso '+esc(e.caso):''}${e.reemplazo&&A[e.reemplazo]?' · Reemplazo: '+esc(A[e.reemplazo].modelo+' '+A[e.reemplazo].serie):''}</td><td class="sm mut">${esc(e.usuario||'')}</td></tr>`).join('')}</table>`:'<div class="mut">Sin eventos registrados</div>'}</div>
+  <div class="sec"><h3>Bitácora</h3><div id="faBit" class="mut sm">Cargando…</div></div>`;
+  openM();
+  try{ const b=await S.bitacoraDe(aid); const el=document.getElementById('faBit'); if(el) el.innerHTML=b.length?`<table>${b.map(x=>`<tr><td class="sm">${new Date(x.fecha).toLocaleString('es-CL')}</td><td class="sm">${esc(x.usuario)}</td><td class="sm">${esc(ACC[x.accion]||x.accion)} ${esc(TABLAS[x.tabla]||x.tabla)}</td><td class="sm">${esc(bitDet(x))}</td></tr>`).join('')}</table>`:'Sin cambios registrados desde que se activó la bitácora'; }catch(e){}
+}
+async function cambiarContrato(aid,v){ if(!v) return; try{ await S.vincularContrato([aid],+v); toast('Contrato actualizado'); go._keep=true; go(); fichaActivo(aid); }catch(e){ toast(e.message); } }
+const ESTADOS_ESP=['En servicio técnico','Devuelto al proveedor','Extraviado'];
+function estadoForm(aid){
+  const a=A[aid], t=titular(aid);
+  const ops=a.estado==='Asignado'||a.estado==='Disponible'||a.estado==='En oficina'?ESTADOS_ESP:['Disponible',...ESTADOS_ESP.filter(x=>x!==a.estado)];
+  const disp=D.activos.filter(x=>x.categoria===a.categoria&&x.estado==='Disponible'&&x.id!==aid);
+  document.getElementById('mbody').innerHTML=`<button onclick="fichaActivo('${aid}')">← Volver</button><h1 style="margin-top:12px">Cambiar estado · ${esc(a.marca)} ${esc(a.modelo)}</h1><div class="sub">Estado actual: ${tagEstado(a.estado)}${t?' · asignado a '+esc(nom(t)):''}</div>
+  <div class="row"><div><label class="f">Nuevo estado</label><select id="esE" onchange="esCampos()" style="width:100%">${ops.map(o=>`<option>${o}</option>`).join('')}</select></div><div><label class="f">Fecha</label><input type="date" id="esF" value="${TODAY}" style="width:100%"></div></div>
+  <div class="row" id="esCaso">${campo('esC','N° de caso o ticket del proveedor')}</div>
+  ${campo('esN','Detalle','','placeholder="Ej: falla de pantalla, retirado por técnico del proveedor"')}
+  ${t?`<div id="esRw"><label class="f">Equipo de reemplazo para ${esc(nomC(t))} (opcional)</label><select id="esR" style="width:100%"><option value="">— Sin reemplazo —</option>${disp.map(x=>`<option value="${x.id}">${esc(x.marca)} ${esc(x.modelo)} · ${esc(x.serie)}</option>`).join('')}</select><div class="mut sm" style="margin-top:4px">El equipo actual deja de estar asignado a ${esc(nomC(t))}; si eliges un reemplazo, se le asigna de inmediato.</div></div>`:''}
+  <div class="bar" style="margin-top:14px"><button class="p" onclick="guardarEstado('${aid}')">Guardar</button></div><div id="esErr"></div>`;
+  esCampos();
+}
+function esCampos(){ const e=esE.value; esCaso.style.display=e==='En servicio técnico'?'':'none'; const rw=document.getElementById('esRw'); if(rw) rw.style.display=e==='Disponible'?'none':''; }
+async function guardarEstado(aid){
+  const e=esE.value, t=titular(aid);
+  const r={estado:e,fecha:esF.value||TODAY,nota:esN.value.trim(),caso:e==='En servicio técnico'?esC.value.trim():'',reemplazo:(window.esR&&e!=='Disponible'&&esR.value)||null,funcionario:t&&e!=='Disponible'?t.id:null};
+  try{ await S.cambiarEstado(aid,r); toast('Estado actualizado'+(r.reemplazo?' y reemplazo asignado':'')); go._keep=true; go(); if(r.reemplazo&&t) acta(t.id,'entrega',{activos:[r.reemplazo]}); else fichaActivo(aid); }
+  catch(er){ esErr.innerHTML='<span class="tag t-bad">'+esc(er.message)+'</span>'; }
+}
+
+// ---------- Registrar compra (accesorios y componentes) ----------
+function compraForm(){
+  window._ci=1;
+  document.getElementById('mbody').innerHTML=`<h1>Registrar compra</h1><div class="sub">Accesorios y componentes. Al guardar, el stock sube automáticamente.</div>
+  <div class="row">${campo('coFac','N° de factura *')}${campo('coProv','Proveedor *')}</div>
+  <div class="row"><div><label class="f">Fecha *</label><input type="date" id="coFec" value="${TODAY}" style="width:100%"></div>${campo('coOc','Orden de compra')}</div>
+  <div class="sec"><h3>Productos</h3><div id="coItems">${coFila(0)}</div><div class="bar" style="margin-top:8px"><button onclick="coAgregar()">+ Agregar producto</button></div></div>
+  <div class="bar" style="margin-top:14px"><button class="p" onclick="guardarCompra()">Guardar compra</button></div><div id="coErr"></div>`;
+  openM();
+}
+function coFila(i){ return `<div class="row coF" data-i="${i}" style="align-items:flex-end;margin-bottom:6px"><div style="flex:2"><label class="f">Producto</label><select class="coP" onchange="coNuevo(this)" style="width:100%"><option value="">— Elegir —</option>${D.productos.map(p=>`<option value="${esc(p.codigo)}">${esc(p.descripcion.slice(0,60))}</option>`).join('')}<option value="__nuevo">+ Producto nuevo…</option></select><div class="coN" style="display:none"><div class="row"><input class="coNc" placeholder="Código" style="flex:1"><input class="coNd" placeholder="Descripción" style="flex:3"><input class="coNm" type="number" placeholder="Stock mín." style="flex:1"></div></div></div><div style="flex:1;min-width:90px"><label class="f">Cantidad</label><input class="coQ" type="number" min="1" value="1" style="width:100%"></div><div style="flex:1;min-width:110px"><label class="f">Precio unit. neto</label><input class="coPr" type="number" min="0" style="width:100%"></div></div>`; }
+function coAgregar(){ coItems.insertAdjacentHTML('beforeend',coFila(window._ci++)); }
+function coNuevo(sel){ const n=sel.parentElement.querySelector('.coN'); n.style.display=sel.value==='__nuevo'?'':'none'; const p=P[sel.value]; if(p){ const pr=sel.closest('.coF').querySelector('.coPr'); if(!pr.value) pr.value=p.precio; } }
+async function guardarCompra(){
+  const err=m=>coErr.innerHTML='<span class="tag t-bad">'+esc(m)+'</span>';
+  if(!coFac.value.trim()||!coProv.value.trim()||!coFec.value) return err('Completa factura, proveedor y fecha');
+  const items=[], nuevos=[];
+  for(const f of document.querySelectorAll('.coF')){
+    let cod=f.querySelector('.coP').value; const q=+f.querySelector('.coQ').value, pr=+f.querySelector('.coPr').value||0;
+    if(!cod) continue;
+    if(cod==='__nuevo'){ cod=f.querySelector('.coNc').value.trim(); const d=f.querySelector('.coNd').value.trim(); if(!cod||!d) return err('Producto nuevo: completa código y descripción'); if(P[cod]) return err('El código '+cod+' ya existe'); nuevos.push({codigo:cod,descripcion:d,stock_min:+f.querySelector('.coNm').value||0,precio:pr}); }
+    if(q<1) return err('Las cantidades deben ser mayores a 0');
+    items.push({codigo:cod,cantidad:q,precio:pr});
+  }
+  if(!items.length) return err('Agrega al menos un producto');
+  try{ await S.registrarCompra({factura:coFac.value.trim(),proveedor:coProv.value.trim(),fecha:coFec.value,oc:coOc.value.trim()},items,nuevos); toast('Compra registrada: stock actualizado'); closeM(); go(); }catch(e){ err(e.message); }
+}
+
+// ---------- Bitácora ----------
+const ACC={insert:'Creó',update:'Modificó',delete:'Eliminó'};
+const TABLAS={funcionarios:'funcionario',activos:'activo',asignaciones:'asignación',licencias:'licencia',licencias_asig:'licencia asignada',fea:'firma electrónica',productos:'producto',compras:'compra',compra_items:'ítem de compra',entregas:'entrega de accesorio',contratos:'contrato',eventos_activo:'estado de activo',usuarios_ti:'usuario del sistema'};
+function bitQue(b){
+  const v=b.despues||b.antes||{}, pick=k=>(b.despues&&b.despues[k]!==undefined?b.despues[k]:(b.antes||{})[k]);
+  const fa=id=>F[id]?nomC(F[id]):id, aa=id=>A[id]?(A[id].marca+' '+A[id].modelo+' '+(A[id].serie||'')):id;
+  const tabla=TABLAS[b.tabla]||b.tabla;
+  if(b.tabla==='funcionarios') return tabla+' '+fa(b.registro);
+  if(b.tabla==='activos') return tabla+' '+aa(b.registro);
+  if(b.tabla==='asignaciones'){ const x=D.asignaciones.find(z=>String(z.id)===String(b.registro))||v; return tabla+': '+aa(x.activo||pick('activo'))+' → '+fa(x.funcionario||pick('funcionario')); }
+  if(b.tabla==='eventos_activo') return tabla+': '+aa(pick('activo'));
+  if(b.tabla==='contratos'){ const c=D.contratos.find(z=>String(z.id)===String(b.registro)); return tabla+' '+(c?c.proveedor+' '+(c.numero||''):b.registro); }
+  if(b.tabla==='entregas'||b.tabla==='licencias_asig'||b.tabla==='fea'){ const f=pick('funcionario'); return tabla+(f?' · '+fa(f):''); }
+  return tabla+' '+(b.registro||'');
+}
+function bitDet(b){
+  const fmt=v=>v===null||v===undefined||v===''?'—':typeof v==='object'?JSON.stringify(v):String(v);
+  if(b.accion==='update'&&b.despues) return Object.keys(b.despues).map(k=>k+': '+fmt((b.antes||{})[k])+' → '+fmt(b.despues[k])).join(' · ');
+  if(b.accion==='insert'&&b.despues){ const d=b.despues; return ['estado','categoria','modelo','serie','codigo','cantidad','proveedor','numero','termino','tipo','nota'].filter(k=>d[k]!==undefined&&d[k]!==null&&d[k]!=='').map(k=>k+': '+fmt(d[k])).join(' · '); }
+  if(b.accion==='delete') return 'registro eliminado';
+  return '';
+}
+let bq='', bt='';
+V.bitacora=()=>`<h1>Bitácora</h1><div class="sub">Registro automático de cada cambio: quién, qué y cuándo. Nadie puede editarla ni borrarla. Se muestran los últimos ${(D.bitacora||[]).length} cambios.</div>
+  <div class="card"><div class="bar"><input type="search" id="bq" placeholder="Buscar usuario, funcionario, serie…" value="${esc(bq)}"><select id="bt"><option value="">Todo</option>${Object.entries(TABLAS).map(([k,v])=>`<option value="${k}" ${k===bt?'selected':''}>${v}</option>`).join('')}</select><span class="mut sm" id="bn"></span></div><div id="btab"></div></div>`;
+function renderB(){
+  const q=bq.toLowerCase();
+  const L=(D.bitacora||[]).filter(b=>!bt||b.tabla===bt).map(b=>({b,que:bitQue(b),det:bitDet(b)})).filter(x=>!q||(x.b.usuario+' '+x.que+' '+x.det).toLowerCase().includes(q));
+  document.getElementById('bn').textContent=L.length+' registros';
+  document.getElementById('btab').innerHTML=L.length?`<table><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Qué</th><th>Detalle</th></tr>${L.slice(0,500).map(x=>`<tr><td class="sm" style="white-space:nowrap">${new Date(x.b.fecha).toLocaleString('es-CL')}</td><td class="sm">${esc(x.b.usuario)}</td><td>${x.b.accion==='delete'?'<span class="tag t-bad">Eliminó</span>':x.b.accion==='insert'?'<span class="tag t-ok">Creó</span>':'<span class="tag t-pri">Modificó</span>'}</td><td class="sm">${esc(x.que)}</td><td class="sm mut">${esc(x.det)}</td></tr>`).join('')}</table>`:'<div class="empty">Sin registros todavía</div>';
+}
+// ---------- Exportar a Excel ----------
+function cargarXLSX(){ return window.XLSX?Promise.resolve():new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload=ok; s.onerror=()=>ko(new Error('No se pudo cargar el generador de Excel')); document.head.appendChild(s); }); }
+async function exportarExcel(){
+  if(window.EXPORT_DISABLED){ toast('En la demo no se pueden descargar archivos; en el sistema real sí.'); return; }
+  try{ await cargarXLSX(); }catch(e){ toast(e.message); return; }
+  const wb=XLSX.utils.book_new();
+  const hoja=(nombre,filas,anchos)=>{ const ws=XLSX.utils.json_to_sheet(filas.length?filas:[{'Sin datos':''}]); if(filas.length){ ws['!autofilter']={ref:ws['!ref']}; ws['!cols']=Object.keys(filas[0]).map((k,i)=>({wch:(anchos&&anchos[i])||Math.min(45,Math.max(k.length+2,...filas.slice(0,200).map(r=>String(r[k]??'').length+1)))})); } XLSX.utils.book_append_sheet(wb,ws,nombre); };
+  const tit=aid=>titular(aid);
+  hoja('Activos',D.activos.map(a=>{const t=tit(a.id);return {'Categoría':a.categoria,'Tipo':a.tipo,'Marca':a.marca,'Modelo':a.modelo,'N° de serie':a.serie,'IMEI':a.imei||'','Número':a.numero||'','Anexo':a.anexo||'','Código inventario':a.codigo||'','Estado':a.estado,'Propiedad':a.propiedad||'','Contrato':(ctDe(a)||{}).numero||'','Proveedor arriendo':(ctDe(a)||{}).proveedor||'','Término contrato':(ctDe(a)||{}).termino||'','Titular':t?nom(t):(a.titular_texto||''),'RUT titular':t?t.rut:'','División titular':t?t.division:'','Ubicación':a.ubicacion||'','Observaciones':a.obs||''};}));
+  hoja('Funcionarios',D.funcionarios.map(f=>{const v=vigentes(f.id);return {'RUT':f.rut,'Nombre':nom(f),'Correo':f.correo,'División':f.division,'Dirección':f.direccion||'','Piso':f.piso||'','Estado':f.estado,'Computadores':v.filter(x=>x.a.categoria==='Computador').length,'Pantallas':v.filter(x=>x.a.categoria==='Pantalla').length,'Celulares':v.filter(x=>x.a.categoria==='Celular').length,'Teléfonos IP':v.filter(x=>x.a.categoria==='Teléfono IP').length,'Licencias':licAsig(f.id).map(l=>l.prod+' '+l.plan).join(', '),'FEA':feaDe(f.id).filter(x=>x.estado==='Activa').map(x=>x.proveedor).join(', ')};}));
+  hoja('Asignaciones vigentes',D.asignaciones.filter(x=>x.vigente&&F[x.funcionario]&&A[x.activo]).map(x=>{const f=F[x.funcionario],a=A[x.activo];return {'Funcionario':nom(f),'RUT':f.rut,'División':f.division,'Estado funcionario':f.estado,'Categoría':a.categoria,'Marca':a.marca,'Modelo':a.modelo,'N° de serie':a.serie,'IMEI':a.imei||'','Código inventario':a.codigo||'','Desde':x.desde||'','Acta de entrega':x.acta_entrega||'','Alerta':x.alerta||''};}));
+  hoja('Historial devoluciones',D.asignaciones.filter(x=>!x.vigente&&F[x.funcionario]&&A[x.activo]).map(x=>{const f=F[x.funcionario],a=A[x.activo];return {'Funcionario':nom(f),'RUT':f.rut,'Categoría':a.categoria,'Marca':a.marca,'Modelo':a.modelo,'N° de serie':a.serie,'Hasta':x.hasta||'','Acta de devolución':x.acta_devolucion||''};}));
+  hoja('Accesorios entregados',D.entregas.map(e=>{const f=F[e.funcionario];return {'Fecha':e.fecha,'Código':e.codigo,'Producto':P[e.codigo]?P[e.codigo].descripcion:'','Cantidad':e.cantidad,'Funcionario':f?nom(f):e.titular_texto,'RUT':f?f.rut:e.rut,'Unidad':f?f.division:e.unidad,'Acta':e.acta||''};}));
+  hoja('Stock bodega',D.productos.map(p=>{const s=stock(p.codigo);return {'Código':p.codigo,'Descripción':p.descripcion,'Ingresado':s.ingresado,'Entregado':s.entregado,'Stock':s.stock,'Stock mínimo':p.stock_min,'Precio unitario':p.precio,'Valor stock':s.stock*p.precio};}));
+  hoja('Licencias',D.licencias_asig.map(l=>{const p=D.licencias.find(x=>x.id===l.pool),f=F[l.funcionario];return {'Producto':p.producto,'Plan':p.producto==='Claude'?l.tipo:p.plan,'Titular':f?nom(f):(l.titular_texto||''),'Correo':l.correo||(f?f.correo:''),'Unidad':l.unidad||(f?f.division:''),'Desde':l.desde||'','Cuenta compartida':l.compartida?'Sí':'No'};}));
+  hoja('Firma electrónica',D.fea.map(x=>{const f=F[x.funcionario];return {'Titular':f?nom(f):x.titular_texto,'RUT':x.rut,'Proveedor':x.proveedor,'Estado':x.estado,'Inicio':x.inicio||'','Vence':x.vence||'','Días para vencer':x.vence?days(x.vence):'','Observaciones':x.obs||''};}));
+  hoja('Contratos',D.contratos.map(c=>({'Proveedor':c.proveedor,'N° contrato / OC':c.numero||'','Descripción':c.descripcion||'','Inicio':c.inicio||'','Término':c.termino||'','Días para término':c.termino?days(c.termino):'','Valor mensual':c.valor_mensual||'','Equipos vinculados':D.activos.filter(a=>a.contrato===c.id).length,'Soporte incluido':c.soporte||''})));
+  hoja('Bitácora',(D.bitacora||[]).map(b=>({'Fecha':new Date(b.fecha).toLocaleString('es-CL'),'Usuario':b.usuario,'Acción':ACC[b.accion]||b.accion,'Qué':bitQue(b),'Detalle':bitDet(b)})));
+  hoja('Egresos pendientes',egresosPend().map(x=>({'Funcionario':nom(x.f),'RUT':x.f.rut,'División':x.f.division,'Activos por devolver':x.act.map(a=>a.a.categoria+' '+a.a.modelo+' ('+(a.a.serie||a.a.imei)+')').join('; '),'Licencias por liberar':x.lic.map(l=>l.prod+' '+l.plan).join(', '),'FEA vigente':x.fe.map(f=>f.proveedor).join(', ')})));
+  XLSX.writeFile(wb,'Inventario_TI_'+TODAY+'.xlsx');
+  toast('Planilla descargada');
+}
 // ---------- router ----------
 function openM(){document.getElementById('modal').classList.add('on');}
 function closeM(){document.getElementById('modal').classList.remove('on');}
 document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeM();});
-function setPill(){const n=egresosPend().length;document.getElementById('pEg').textContent=n||'';document.getElementById('pEg').style.display=n?'':'none';}
+function setPill(){ const nc=(D.contratos||[]).filter(c=>c.termino&&days(c.termino)<=90).length, pc=document.getElementById('pCt'); if(pc){ pc.textContent=nc||''; pc.style.display=nc?'':'none'; }const n=egresosPend().length;document.getElementById('pEg').textContent=n||'';document.getElementById('pEg').style.display=n?'':'none';}
 function go(){
   if(!D) return;
   if(!go._keep) closeM(); go._keep=false;
@@ -447,6 +659,7 @@ function go(){
   document.getElementById('main').innerHTML=V[view]();
   if(view==='funcionarios'){renderF(); q.oninput=e=>{fq=e.target.value;renderF();}; document.getElementById('fe').onchange=e=>{fe=e.target.value;renderF();}; document.getElementById('fd').onchange=e=>{fdv=e.target.value;renderF();};}
   if(view==='activos'){renderA(); document.getElementById('aq').oninput=e=>{aq=e.target.value;renderA();}; document.getElementById('ac').onchange=e=>{ac=e.target.value;renderA();}; document.getElementById('ae').onchange=e=>{ae=e.target.value;renderA();};}
+  if(view==='bitacora'){renderB(); document.getElementById('bq').oninput=e=>{bq=e.target.value;renderB();}; document.getElementById('bt').onchange=e=>{bt=e.target.value;renderB();};}
   if(view==='fea'){renderFea(); document.getElementById('feq').oninput=e=>{feq=e.target.value;renderFea();}; document.getElementById('fee').onchange=e=>{fee=e.target.value;renderFea();};}
   setPill();
 }
@@ -483,10 +696,12 @@ const S = {
   async load(){
     const [funcionarios, activos, asignaciones, licencias, licencias_asig, fea, productos, compras, compra_items, entregas, observaciones] = await Promise.all(
       ['funcionarios','activos','asignaciones','licencias','licencias_asig','fea','productos','compras','compra_items','entregas','observaciones'].map(t => all(t, t==='entregas'?'id':null)));
+    const [contratos, eventos, bit] = await Promise.all([all('contratos','id'), all('eventos_activo','id'), sb.from('bitacora').select('*').order('fecha', { ascending:false }).limit(1000)]);
+    const bitacora = bit.error ? [] : bit.data;
     productos.forEach(p => { p.ingresado = compra_items.filter(i => i.codigo === p.codigo).reduce((s,i) => s + i.cantidad, 0); p.precio = +p.precio; });
     compras.sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
     compras.forEach(c => c.items = compra_items.filter(i => i.compra === c.id));
-    return { funcionarios, activos, asignaciones, licencias, licencias_asig, fea, productos, compras, entregas, observaciones };
+    return { funcionarios, activos, asignaciones, licencias, licencias_asig, fea, productos, compras, entregas, observaciones, contratos, eventos, bitacora };
   },
   async reload(){ D = await this.load(); build(); },
   async asignar(aid, fid){ ok(await sb.from('asignaciones').insert({ activo: aid, funcionario: fid })); await this.reload(); },
@@ -508,6 +723,23 @@ const S = {
     await this.reload();
   },
   async eliminarFuncionario(id){ ok(await sb.from('funcionarios').delete().eq('id', id)); await this.reload(); },
+  async crearContrato(c){ const { data, error } = await sb.from('contratos').insert(c).select('id').single(); if(error) throw new Error(error.message); await this.reload(); return data.id; },
+  async editarContrato(id, patch){ ok(await sb.from('contratos').update(patch).eq('id', id)); await this.reload(); },
+  async vincularContrato(ids, cid){ for(let i = 0; i < ids.length; i += 150) ok(await sb.from('activos').update({ contrato: cid }).in('id', ids.slice(i, i + 150))); await this.reload(); },
+  async cambiarEstado(aid, r){
+    if(r.funcionario) ok(await sb.from('asignaciones').update({ vigente:false, hasta:r.fecha }).eq('activo', aid).eq('vigente', true));
+    ok(await sb.from('activos').update({ estado: r.estado }).eq('id', aid));
+    ok(await sb.from('eventos_activo').insert({ activo: aid, fecha: r.fecha, estado: r.estado, nota: r.nota || null, caso: r.caso || null, reemplazo: r.reemplazo || null }));
+    if(r.reemplazo && r.funcionario) ok(await sb.from('asignaciones').insert({ activo: r.reemplazo, funcionario: r.funcionario, desde: r.fecha }));
+    await this.reload();
+  },
+  async registrarCompra(c, items, nuevos){
+    if(nuevos.length) ok(await sb.from('productos').insert(nuevos));
+    const { data, error } = await sb.from('compras').insert(c).select('id').single(); if(error) throw new Error(error.message);
+    ok(await sb.from('compra_items').insert(items.map(i => ({ ...i, compra: data.id }))));
+    await this.reload();
+  },
+  async bitacoraDe(aid){ const { data, error } = await sb.from('bitacora').select('*').or(`registro.eq.${aid},despues->>activo.eq.${aid},antes->>activo.eq.${aid}`).order('fecha', { ascending:false }).limit(100); return error ? [] : data; },
   async egreso(fid){
     ok(await sb.from('asignaciones').update({ vigente:false, hasta: hoy(), alerta:null }).eq('funcionario', fid).eq('vigente', true));
     ok(await sb.from('licencias_asig').update({ vigente:false, hasta: hoy() }).eq('funcionario', fid).eq('vigente', true));
