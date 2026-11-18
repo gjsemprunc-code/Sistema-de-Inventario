@@ -67,7 +67,6 @@ label.f{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
 label.f+input,label.f+select{width:100%}
 @media(max-width:800px){nav{width:62px;padding:12px 6px}nav .brand,nav a span.t{display:none}main{padding:16px}}
 </style>
-  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPjxyZWN0IHg9IjYiIHk9IjYiIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgZmlsbD0iIzM4NTJFRiIvPjxyZWN0IHg9IjIwIiB5PSI2IiB3aWR0aD0iNiIgaGVpZ2h0PSI2IiBmaWxsPSIjOUJDMUY3Ii8+PHJlY3QgeD0iNiIgeT0iMjAiIHdpZHRoPSIyMCIgaGVpZ2h0PSI2IiBmaWxsPSIjNkQ5M0YyIi8+PC9zdmc+">
 </head>
 <body>
 <div class="app">
@@ -570,6 +569,7 @@ async function guardarEstado(aid){
 function compraForm(){
   window._ci=1;
   document.getElementById('mbody').innerHTML=`<h1>Registrar compra</h1><div class="sub">Accesorios y componentes. Al guardar, el stock sube automáticamente.</div>
+  <div class="card" style="background:var(--pri2);border-color:transparent;margin-bottom:6px"><b>Importar desde planilla</b> <span class="mut sm">(Excel o CSV)</span><div class="bar" style="margin:8px 0 0"><input type="file" id="coFile" accept=".xlsx,.xls,.xlsm,.csv" onchange="importarCompra(this.files[0])"><a href="javascript:plantillaCompra()" class="sm">Descargar plantilla</a></div><div id="coImp" class="sm" style="margin-top:6px"></div></div>
   <div class="row">${campo('coFac','N° de factura *')}${campo('coProv','Proveedor *')}</div>
   <div class="row"><div><label class="f">Fecha *</label><input type="date" id="coFec" value="${TODAY}" style="width:100%"></div>${campo('coOc','Orden de compra')}</div>
   <div class="sec"><h3>Productos</h3><div id="coItems">${coFila(0)}</div><div class="bar" style="margin-top:8px"><button onclick="coAgregar()">+ Agregar producto</button></div></div>
@@ -577,11 +577,60 @@ function compraForm(){
   openM();
 }
 function coFila(i){ return `<div class="row coF" data-i="${i}" style="align-items:flex-end;margin-bottom:6px"><div style="flex:2"><label class="f">Producto</label><select class="coP" onchange="coNuevo(this)" style="width:100%"><option value="">— Elegir —</option>${D.productos.map(p=>`<option value="${esc(p.codigo)}">${esc(p.descripcion.slice(0,60))}</option>`).join('')}<option value="__nuevo">+ Producto nuevo…</option></select><div class="coN" style="display:none"><div class="row"><input class="coNc" placeholder="Código" style="flex:1"><input class="coNd" placeholder="Descripción" style="flex:3"><input class="coNm" type="number" placeholder="Stock mín." style="flex:1"></div></div></div><div style="flex:1;min-width:90px"><label class="f">Cantidad</label><input class="coQ" type="number" min="1" value="1" style="width:100%"></div><div style="flex:1;min-width:110px"><label class="f">Precio unit. neto</label><input class="coPr" type="number" min="0" style="width:100%"></div></div>`; }
-function coAgregar(){ coItems.insertAdjacentHTML('beforeend',coFila(window._ci++)); }
+function coAgregar(){ coItems.insertAdjacentHTML('beforeend',coFila(window._ci++)); return coItems.lastElementChild; }
+// ---------- Importar compra desde planilla ----------
+const norm2=s=>String(s??'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+function fechaISO(v){ if(!v) return ''; if(v instanceof Date&&!isNaN(v)) return new Date(v.getTime()-v.getTimezoneOffset()*6e4).toISOString().slice(0,10); const s=String(v).trim(); let m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/); if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[0]:''; }
+function num(v){ if(typeof v==='number') return v; const s=String(v??'').replace(/[$\s]/g,''); if(!s) return NaN; return +(s.includes(',')&&!s.includes('.')?s.replace(',','.'):s.replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.')); }
+async function importarCompra(file){
+  if(!file) return; const msg=document.getElementById('coImp');
+  try{ await cargarXLSX(); }catch(e){ msg.innerHTML='<span class="tag t-bad">'+esc(e.message)+'</span>'; return; }
+  let wb; try{
+    if(/\.csv$/i.test(file.name)){ const txt=await file.text(); const l1=txt.split(/\r?\n/)[0]; const fs=(l1.match(/;/g)||[]).length>(l1.match(/,/g)||[]).length?';':(l1.includes('\t')?'\t':','); wb=XLSX.read(txt,{type:'string',FS:fs,raw:true}); }
+    else wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }catch(e){ msg.innerHTML='<span class="tag t-bad">No se pudo leer el archivo</span>'; return; }
+  const meta={}; let mejor=null;
+  for(const nombre of wb.SheetNames){
+    const salida=/entrega|salida|despacho|asignac/.test(norm2(nombre));
+    const filas=XLSX.utils.sheet_to_json(wb.Sheets[nombre],{header:1,defval:'',raw:true});
+    filas.slice(0,40).forEach(f=>f.forEach((c,i)=>{ const k=norm2(c), v=f[i+1];
+      if(v===''||v===undefined) return;
+      if(/^proveedor$|^razon social/.test(k)&&!meta.proveedor) meta.proveedor=String(v).trim();
+      else if(/factura/.test(k)&&/(n°|nº|nro|numero|folio|\bn\b|\bno\b)/.test(k)&&!/cant/.test(k)&&!meta.factura) meta.factura=String(v).trim();
+      else if(/^fecha/.test(k)&&!meta.fecha) meta.fecha=fechaISO(v);
+      else if((/orden de compra/.test(k)||/^oc\b/.test(k))&&!meta.oc) meta.oc=String(v).trim(); }));
+    filas.slice(0,10).forEach(f=>{ const s=f.join(' '); const m=s.match(/factura[^\d]*(\d{3,})/i); if(m&&!meta.factura) meta.factura=m[1]; const o=s.match(/\bOC\s*[:#]?\s*([\w-]{5,})/); if(o&&!meta.oc) meta.oc=o[1]; const d=s.match(/(\d{2}-\d{2}-\d{4})/); if(d&&!meta.fecha) meta.fecha=fechaISO(d[1]); });
+    for(let h=0;h<Math.min(filas.length,25);h++){
+      const H=filas[h].map(norm2), col=re=>H.findIndex(x=>re.test(x));
+      const c={cod:col(/^codigo|^cod\b|^sku|^n° parte|numero de parte/), des:col(/descrip|producto|detalle|articulo|nombre/), cant:col(/^cant|cantidad/), pre:col(/unitario|precio|valor unit/), min:col(/minimo/)};
+      if(c.cod>=0&&c.cant>=0){ const items=[]; for(const f of filas.slice(h+1)){ const cod=String(f[c.cod]??'').trim(), q=num(f[c.cant]); if(!cod){ if(items.length) break; else continue; } if(!(q>0)) continue; items.push({codigo:cod,descripcion:c.des>=0?String(f[c.des]).trim():'',cantidad:Math.round(q),precio:c.pre>=0?(num(f[c.pre])||0):0,stock_min:c.min>=0?(num(f[c.min])||0):0}); } const score=items.length+(c.pre>=0?50:0)-(salida?1000:0); if(items.length&&(!mejor||score>mejor.score)) mejor={hoja:nombre,items,score}; break; }
+    }
+  }
+  if(!mejor){ msg.innerHTML='<span class="tag t-bad">No encontré una tabla con columnas “Código” y “Cantidad”. Usa la plantilla.</span>'; return; }
+  const agr={}; mejor.items.forEach(i=>{ if(agr[i.codigo]) agr[i.codigo].cantidad+=i.cantidad; else agr[i.codigo]={...i}; });
+  const items=Object.values(agr);
+  if(meta.factura) coFac.value=meta.factura; if(meta.proveedor) coProv.value=meta.proveedor; if(meta.fecha) coFec.value=meta.fecha; if(meta.oc) coOc.value=meta.oc;
+  coItems.innerHTML=''; window._ci=0;
+  items.forEach(i=>{ const f=coAgregar(), sel=f.querySelector('.coP');
+    if(P[i.codigo]) sel.value=i.codigo; else { sel.value='__nuevo'; coNuevo(sel); f.querySelector('.coNc').value=i.codigo; f.querySelector('.coNd').value=i.descripcion; f.querySelector('.coNm').value=i.stock_min||''; }
+    f.querySelector('.coQ').value=i.cantidad; f.querySelector('.coPr').value=i.precio||(P[i.codigo]?P[i.codigo].precio:''); });
+  const nuevos=items.filter(i=>!P[i.codigo]).length;
+  msg.innerHTML=`<span class="tag t-ok">${items.length} productos leídos de “${esc(mejor.hoja)}”</span> ${items.reduce((s,i)=>s+i.cantidad,0)} unidades · ${nuevos?`<span class="tag t-warn">${nuevos} producto(s) nuevo(s)</span>`:'todos ya existen en bodega'}${meta.factura?'':' · <span class="tag t-warn">completa el N° de factura</span>'}. Revisa abajo y presiona <b>Guardar compra</b>.`;
+}
+async function plantillaCompra(){
+  if(window.EXPORT_DISABLED){ toast('En la demo no se pueden descargar archivos; en el sistema real sí.'); return; }
+  try{ await cargarXLSX(); }catch(e){ toast(e.message); return; }
+  const wb=XLSX.utils.book_new();
+  const fac=XLSX.utils.aoa_to_sheet([['Proveedor',''],['Factura N°',''],['Fecha','dd-mm-aaaa'],['Orden de compra','']]); fac['!cols']=[{wch:18},{wch:36}];
+  const it=XLSX.utils.aoa_to_sheet([['Código','Descripción','Cantidad','Precio unitario neto','Stock mínimo'],...D.productos.slice(0,2).map(p=>[p.codigo,p.descripcion,0,p.precio,p.stock_min])]); it['!cols']=[{wch:18},{wch:60},{wch:10},{wch:20},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,fac,'Factura'); XLSX.utils.book_append_sheet(wb,it,'Productos');
+  XLSX.writeFile(wb,'Plantilla_compra_accesorios.xlsx');
+}
 function coNuevo(sel){ const n=sel.parentElement.querySelector('.coN'); n.style.display=sel.value==='__nuevo'?'':'none'; const p=P[sel.value]; if(p){ const pr=sel.closest('.coF').querySelector('.coPr'); if(!pr.value) pr.value=p.precio; } }
 async function guardarCompra(){
   const err=m=>coErr.innerHTML='<span class="tag t-bad">'+esc(m)+'</span>';
   if(!coFac.value.trim()||!coProv.value.trim()||!coFec.value) return err('Completa factura, proveedor y fecha');
+  const dupF=D.compras.find(c=>String(c.factura).trim().toLowerCase()===coFac.value.trim().toLowerCase()&&(()=>{ const w=s=>new Set(norm2(s).split(/[^a-z0-9]+/).filter(x=>x.length>=4&&!['ltda','limitada','spa','eirl','sociedad'].includes(x))); const A1=w(c.proveedor), B1=w(coProv.value); return [...A1].some(x=>B1.has(x)); })());
+  if(dupF) return err('La factura '+coFac.value.trim()+' de '+dupF.proveedor+' ya fue registrada el '+fd(dupF.fecha)+'. No se cargó dos veces.');
   const items=[], nuevos=[];
   for(const f of document.querySelectorAll('.coF')){
     let cod=f.querySelector('.coP').value; const q=+f.querySelector('.coQ').value, pr=+f.querySelector('.coPr').value||0;
@@ -630,6 +679,7 @@ function cargarXLSX(){ return window.XLSX?Promise.resolve():new Promise((ok,ko)=
 async function exportarExcel(){
   if(window.EXPORT_DISABLED){ toast('En la demo no se pueden descargar archivos; en el sistema real sí.'); return; }
   try{ await cargarXLSX(); }catch(e){ toast(e.message); return; }
+  if(S.cargarBitacora&&!D._bitOk){ try{ await S.cargarBitacora(); }catch(e){} }
   const wb=XLSX.utils.book_new();
   const hoja=(nombre,filas,anchos)=>{ const ws=XLSX.utils.json_to_sheet(filas.length?filas:[{'Sin datos':''}]); if(filas.length){ ws['!autofilter']={ref:ws['!ref']}; ws['!cols']=Object.keys(filas[0]).map((k,i)=>({wch:(anchos&&anchos[i])||Math.min(45,Math.max(k.length+2,...filas.slice(0,200).map(r=>String(r[k]??'').length+1)))})); } XLSX.utils.book_append_sheet(wb,ws,nombre); };
   const tit=aid=>titular(aid);
@@ -660,7 +710,7 @@ function go(){
   document.getElementById('main').innerHTML=V[view]();
   if(view==='funcionarios'){renderF(); q.oninput=e=>{fq=e.target.value;renderF();}; document.getElementById('fe').onchange=e=>{fe=e.target.value;renderF();}; document.getElementById('fd').onchange=e=>{fdv=e.target.value;renderF();};}
   if(view==='activos'){renderA(); document.getElementById('aq').oninput=e=>{aq=e.target.value;renderA();}; document.getElementById('ac').onchange=e=>{ac=e.target.value;renderA();}; document.getElementById('ae').onchange=e=>{ae=e.target.value;renderA();};}
-  if(view==='bitacora'){renderB(); document.getElementById('bq').oninput=e=>{bq=e.target.value;renderB();}; document.getElementById('bt').onchange=e=>{bt=e.target.value;renderB();};}
+  if(view==='bitacora'){ if(S.cargarBitacora&&!D._bitOk){ document.getElementById('btab').innerHTML='<div class="empty">Cargando bitácora…</div>'; S.cargarBitacora().then(()=>{ if((location.hash||'').slice(1)==='bitacora') renderB(); }); } else renderB(); document.getElementById('bq').oninput=e=>{bq=e.target.value;renderB();}; document.getElementById('bt').onchange=e=>{bt=e.target.value;renderB();};}
   if(view==='fea'){renderFea(); document.getElementById('feq').oninput=e=>{feq=e.target.value;renderFea();}; document.getElementById('fee').onchange=e=>{fee=e.target.value;renderFea();};}
   setPill();
 }
@@ -697,14 +747,15 @@ const S = {
   async load(){
     const [funcionarios, activos, asignaciones, licencias, licencias_asig, fea, productos, compras, compra_items, entregas, observaciones] = await Promise.all(
       ['funcionarios','activos','asignaciones','licencias','licencias_asig','fea','productos','compras','compra_items','entregas','observaciones'].map(t => all(t, t==='entregas'?'id':null)));
-    const [contratos, eventos, bit] = await Promise.all([all('contratos','id'), all('eventos_activo','id'), sb.from('bitacora').select('*').order('fecha', { ascending:false }).limit(1000)]);
-    const bitacora = bit.error ? [] : bit.data;
+    const [contratos, eventos] = await Promise.all([all('contratos','id'), all('eventos_activo','id')]);
+    const bitacora = [];
     productos.forEach(p => { p.ingresado = compra_items.filter(i => i.codigo === p.codigo).reduce((s,i) => s + i.cantidad, 0); p.precio = +p.precio; });
     compras.sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
     compras.forEach(c => c.items = compra_items.filter(i => i.compra === c.id));
     return { funcionarios, activos, asignaciones, licencias, licencias_asig, fea, productos, compras, entregas, observaciones, contratos, eventos, bitacora };
   },
   async reload(){ D = await this.load(); build(); },
+  async cargarBitacora(){ const { data, error } = await sb.from('bitacora').select('*').order('fecha', { ascending:false }).limit(1000); D.bitacora = error ? [] : data; D._bitOk = true; },
   async asignar(aid, fid){ ok(await sb.from('asignaciones').insert({ activo: aid, funcionario: fid })); await this.reload(); },
   async entregar(e){ const r = {...e}; if(!r.acta) delete r.acta; ok(await sb.from('entregas').insert(r)); await this.reload(); },
   async claudeCfg(patch){ ok(await sb.from('licencias').update(patch).eq('id','L-CLAUDE')); await this.reload(); },
@@ -823,6 +874,9 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .gterm{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.75;min-height:96px;color:#cfe0f7}
 .gterm .cmd{color:#fff;font-weight:600}.gterm .cmd i{color:#7db2f7;font-style:normal}
 .gterm .ok{color:#7ee2a8}
+.gload{display:flex;align-items:center;gap:12px;font-size:15px;color:#dfe8f7;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:14px 18px}
+.gspin{width:20px;height:20px;border-radius:50%;border:2.5px solid rgba(255,255,255,.25);border-top-color:#7db2f7;animation:gsp .8s linear infinite;flex:none}
+@keyframes gsp{to{transform:rotate(360deg)}}
 .gcur{display:inline-block;width:8px;height:15px;background:#cfe0f7;vertical-align:-2px;animation:gb 1s steps(1) infinite}
 @keyframes gb{50%{opacity:0}}
 @media(max-width:900px){.gbrand h1{font-size:27px}.gwrap{gap:30px}}
@@ -838,9 +892,9 @@ const ICONOS = {
   licencia:'<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3M21 12v2"/></svg>'
 };
 const ESCENAS = [
-  { pasos:[['persona','Funcionario'],['qr','Etiqueta'],['notebook','Equipo'],['acta','Acta']], lineas:[
-    '<span class="cmd">$ inventario <i>--escanear</i> MCTCI-NB-0427</span>',
-    '· etiqueta leída · Notebook Acer TravelMate P2-15',
+  { pasos:[['persona','Funcionario'],['qr','Serie'],['notebook','Equipo'],['acta','Acta']], lineas:[
+    '<span class="cmd">$ inventario <i>--asignar</i> NXVVTAL0033160F</span>',
+    '· serie encontrada · Notebook Acer TravelMate P2-15 (arriendo)',
     '· asignando → M. González › División Ciencia y Sociedad',
     '<span class="ok">· acta de entrega generada ✓</span>']},
   { pasos:[['caja','Bodega'],['qr','Producto'],['persona','Funcionario'],['acta','Acta']], lineas:[
@@ -872,47 +926,10 @@ function gate(inner){
 }
 function cerrarGate(){ const g = document.getElementById('gate'); if(g){ g.remove(); cancelAnimationFrame(window._sf); clearTimeout(window._at); } }
 function estrellas(){
-  const lienzo = document.getElementById('stars'); if(!lienzo || !lienzo.getContext) return;
-  const ctx = lienzo.getContext('2d');
-  const CLARO="198,226,246", AZUL="96,172,226", ROJO="231,86,94", ORO="255,236,205";
-  let ancho=0, alto=0, DIST=165, inicio=0;
-  let estrs=[], nodos=[], pulsos=[], meteoros=[];
-  const suave = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const CRUZ=[{x:.50,y:1.00,b:1.00},{x:.52,y:.00,b:.80},{x:.00,y:.44,b:.90},{x:1.00,y:.52,b:.60},{x:.26,y:.66,b:.35}];
-  const TRAZOS=[[1,0],[2,3]];
-  const cruz={x:0,y:0,w:0,h:0,ciclo:17000};
-  function medir(){ const dpr=Math.min(window.devicePixelRatio||1,2); ancho=lienzo.clientWidth; alto=lienzo.clientHeight; lienzo.width=ancho*dpr; lienzo.height=alto*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); DIST=ancho<620?128:165; sembrar(); }
-  function sembrar(){
-    const cuantas=Math.round(Math.min(260,Math.max(90,(ancho*alto)/4200))); estrs=[];
-    for(let i=0;i<cuantas;i++){ const plano=i%3; estrs.push({x:Math.random()*ancho,y:Math.random()*alto,r:(plano+1)*.45+Math.random()*.5,vx:(plano+1)*-.012,brillo:.25+plano*.22+Math.random()*.25,fase:Math.random()*6.2832,ritmo:900+Math.random()*1800}); }
-    const cn=Math.round(Math.min(58,Math.max(22,(ancho*alto)/20000))); nodos=[];
-    for(let k=0;k<cn;k++){ nodos.push({x:Math.random()*ancho,y:Math.random()*alto,vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,r:Math.random()*1.3+.9,rojo:Math.random()<.08,fase:Math.random()*6.2832}); }
-    pulsos=[]; meteoros=[];
-    const lado=Math.min(ancho,alto)*(ancho<620?.26:.30); cruz.w=lado*.62; cruz.h=lado;
-    cruz.x=ancho*(ancho<620?.56:.76); cruz.y=alto*(ancho<620?.025:.18);
-  }
-  function halo(x,y,radio,color,fuerza){ const g=ctx.createRadialGradient(x,y,0,x,y,radio); g.addColorStop(0,"rgba("+color+","+fuerza.toFixed(3)+")"); g.addColorStop(1,"rgba("+color+",0)"); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,radio,0,6.2832); ctx.fill(); }
-  function pintarEstrellas(t){ for(let i=0;i<estrs.length;i++){ const e=estrs[i]; const parp=.6+Math.sin(t/e.ritmo+e.fase)*.4; const a=e.brillo*parp; if(e.r>1.4) halo(e.x,e.y,e.r*5,CLARO,a*.18); ctx.fillStyle="rgba("+CLARO+","+a.toFixed(3)+")"; ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,6.2832); ctx.fill(); if(suave) continue; e.x+=e.vx; if(e.x<-2){e.x=ancho+2;e.y=Math.random()*alto;} } }
-  function pintarCruz(t){
-    const fase=(t%cruz.ciclo)/cruz.ciclo; let vis,trazo;
-    if(fase<.10){vis=fase/.10;trazo=0;} else if(fase<.34){vis=1;trazo=(fase-.10)/.24;} else if(fase<.72){vis=1;trazo=1;} else {vis=1-(fase-.72)/.28;trazo=1-(fase-.72)/.28;}
-    if(vis<=.01) return;
-    const P=CRUZ.map(s=>({x:cruz.x+s.x*cruz.w,y:cruz.y+s.y*cruz.h,b:s.b}));
-    ctx.lineCap="round";
-    for(let i=0;i<TRAZOS.length;i++){ const a=P[TRAZOS[i][0]],b=P[TRAZOS[i][1]]; const avance=suave?1:Math.max(0,Math.min(1,trazo*1.6-i*.35)); if(avance<=0) continue; ctx.strokeStyle="rgba("+CLARO+","+(vis*.34).toFixed(3)+")"; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(a.x+(b.x-a.x)*avance,a.y+(b.y-a.y)*avance); ctx.stroke(); }
-    for(let k=0;k<P.length;k++){ const s=P[k],f=vis*s.b; const latir=.85+Math.sin(t/900+k)*.15; halo(s.x,s.y,26+s.b*18,ORO,f*.16*latir); halo(s.x,s.y,5+s.b*5,ORO,f*.55*latir); ctx.fillStyle="rgba(255,252,246,"+(f*latir).toFixed(3)+")"; ctx.beginPath(); ctx.arc(s.x,s.y,.9+s.b*1.5,0,6.2832); ctx.fill(); const d=(7+s.b*13)*latir; ctx.strokeStyle="rgba("+ORO+","+(f*.42).toFixed(3)+")"; ctx.lineWidth=.8; ctx.beginPath(); ctx.moveTo(s.x-d,s.y); ctx.lineTo(s.x+d,s.y); ctx.moveTo(s.x,s.y-d); ctx.lineTo(s.x,s.y+d); ctx.stroke(); }
-  }
-  function pintarRed(t){
-    for(let i=0;i<nodos.length;i++){ for(let j=i+1;j<nodos.length;j++){ const a=nodos[i],b=nodos[j]; const dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy; if(d2>DIST*DIST) continue; const cerca=1-Math.sqrt(d2)/DIST; ctx.strokeStyle="rgba("+AZUL+","+(cerca*.26).toFixed(3)+")"; ctx.lineWidth=.7; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); } }
-    for(let p=pulsos.length-1;p>=0;p--){ const u=pulsos[p]; u.t+=.013; if(u.t>=1){pulsos.splice(p,1);continue;} const px=u.a.x+(u.b.x-u.a.x)*u.t,py=u.a.y+(u.b.y-u.a.y)*u.t; halo(px,py,11,CLARO,Math.sin(u.t*Math.PI)*.85); }
-    for(let k=0;k<nodos.length;k++){ const n=nodos[k]; const latido=.75+Math.sin(t/1400+n.fase)*.25; const color=n.rojo?ROJO:CLARO; halo(n.x,n.y,n.r*5,color,latido*.55); ctx.fillStyle="rgba("+color+","+(latido*.9).toFixed(3)+")"; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,6.2832); ctx.fill(); if(suave) continue; n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>ancho) n.vx*=-1; if(n.y<0||n.y>alto) n.vy*=-1; } }
-  function nuevoPulso(){ if(nodos.length<2||pulsos.length>5) return; const a=nodos[(Math.random()*nodos.length)|0]; const cerca=nodos.filter(b=>{ if(b===a) return false; const dx=a.x-b.x,dy=a.y-b.y; return dx*dx+dy*dy<DIST*DIST; }); if(cerca.length) pulsos.push({a:a,b:cerca[(Math.random()*cerca.length)|0],t:0}); }
-  function nuevoMeteoro(){ if(meteoros.length) return; meteoros.push({x:ancho*(.35+Math.random()*.6),y:-20,vx:-(2.6+Math.random()*1.6),vy:1.5+Math.random()*.9,largo:90+Math.random()*70,vida:0}); }
-  function pintarMeteoros(){ for(let i=meteoros.length-1;i>=0;i--){ const m=meteoros[i]; m.vida+=.012; const f=Math.sin(Math.min(m.vida,1)*Math.PI); const cx=m.x-m.vx*m.largo/3,cy=m.y-m.vy*m.largo/3; const est=ctx.createLinearGradient(m.x,m.y,cx,cy); est.addColorStop(0,"rgba("+CLARO+","+(f*.9).toFixed(3)+")"); est.addColorStop(1,"rgba("+CLARO+",0)"); ctx.strokeStyle=est; ctx.lineWidth=1.6; ctx.lineCap="round"; ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(cx,cy); ctx.stroke(); halo(m.x,m.y,7,CLARO,f*.7); m.x+=m.vx; m.y+=m.vy; if(m.vida>=1||m.y>alto+40||m.x<-120) meteoros.splice(i,1); } }
-  function cuadro(ahora){ if(!inicio) inicio=ahora; const t=ahora-inicio; ctx.clearRect(0,0,ancho,alto); pintarEstrellas(t); pintarCruz(t); pintarRed(t); pintarMeteoros(); if(!suave&&Math.random()<.03) nuevoPulso(); if(!suave&&Math.random()<.0018) nuevoMeteoro(); window._sf=requestAnimationFrame(cuadro); }
-  medir();
-  window._sf=requestAnimationFrame(cuadro);
-  if(!window._starsRz){ window._starsRz=true; let tmr; addEventListener('resize',()=>{clearTimeout(tmr);tmr=setTimeout(medir,180);}); }
+  const c = document.getElementById('stars'), x = c.getContext('2d'); let W, H, S = [];
+  const rs = () => { W = c.width = innerWidth * devicePixelRatio; H = c.height = innerHeight * devicePixelRatio; S = Array.from({ length: 140 }, () => ({ x: Math.random()*W, y: Math.random()*H, r: (Math.random()*1.3+.3)*devicePixelRatio, a: Math.random(), v: Math.random()*.01+.003, d: (Math.random()*.15+.03)*devicePixelRatio })); };
+  rs(); addEventListener('resize', rs);
+  (function f(){ x.clearRect(0,0,W,H); S.forEach(s => { s.a += s.v; s.y -= s.d; if(s.y < 0) s.y = H; x.globalAlpha = .35 + .45*Math.abs(Math.sin(s.a)); x.fillStyle = '#cfe6ff'; x.beginPath(); x.arc(s.x, s.y, s.r, 0, 7); x.fill(); }); window._sf = requestAnimationFrame(f); })();
 }
 function animar(){
   let ei = 0;
@@ -977,14 +994,16 @@ async function verificar(session){
       avisoSinAcceso(ME, estado); return;
     }
     ROL = u.rol;
-    gate('<div class="gnote" style="font-size:14px">Cargando inventario…</div>');
+    gate(cargandoHTML('Cargando inventario de ' + esc(ME) + '…'));
     await start(); cerrarGate();
     if(ROL === 'admin'){ const { count } = await sb.from('solicitudes_acceso').select('*', { count:'exact', head:true }).eq('estado','pendiente'); pillSol(count); }
   }catch(e){
     gate(`<div class="gmsg"><h2>No se pudo ingresar</h2><p>${esc(e.message || e)}</p></div>` + otraCuenta);
   }
 }
+function cargandoHTML(txt){ return `<div class="gload"><span class="gspin"></span><span>${txt}</span></div>`; }
 (async function(){
+  gate(cargandoHTML('Verificando acceso…'));          // de inmediato: sin destello del sistema vacío
   const nav = document.querySelector('nav');
   nav.insertAdjacentHTML('beforeend', `<a data-v="usuarios" class="adm" onclick="location.hash='usuarios'"><span class="t">Control de acceso</span><span class="pill" id="pSol" style="display:none"></span></a><a onclick="salir()" style="margin-top:20px;opacity:.75"><span class="t">Cerrar sesión</span></a><div class="sm" id="meBox" style="padding:10px;color:#8ea0bd;word-break:break-all"></div>`);
   // Errores que Supabase/Google devuelven en la URL al volver del inicio de sesión
